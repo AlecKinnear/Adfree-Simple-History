@@ -829,26 +829,6 @@ class Helpers {
 	}
 
 	/**
-	 *  Add link to add-ons.
-	 *
-	 * @return string HTML for link to add-ons.
-	 */
-	public static function get_header_add_ons_link() {
-		ob_start();
-
-		?>
-		<div class="sh-PageHeader-rightLink">
-			<a href="https://simple-history.com/add-ons/?utm_source=wordpress_admin&utm_medium=Simple_History&utm_campaign=premium_upsell&utm_content=header-addons" target="_blank">
-				<span class="sh-PageHeader-settingsLinkIcon sh-Icon sh-Icon--extension"></span>
-				<span class="sh-PageHeader-settingsLinkText"><?php esc_html_e( 'Add-ons', 'simple-history' ); ?></span>
-			</a>
-		</div>
-		<?php
-
-		return ob_get_clean();
-	}
-
-	/**
 	 * Gets the pager size,
 	 * i.e. the number of items to show on each page in the history
 	 *

@@ -170,8 +170,6 @@ class Admin_Pages extends Service {
 			</h1>
 			
 			<?php
-			// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
-			echo Helpers::get_header_add_ons_link();
 
 			// Output main nav and subnav.
 			// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
