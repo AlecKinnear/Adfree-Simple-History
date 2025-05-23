@@ -1,4 +1,4 @@
-# Simple History – Track, Log, and Audit WordPress Changes
+# Simple History (ad free) – Track, Log, and Audit WordPress Changes
 
 Contributors: eskapism, wpsimplehistory
 Donate link: https://simple-history.com/sponsor/?utm_source=wordpress_org&utm_medium=plugin_directory&utm_campaign=sponsorship&utm_content=readme_donate_link

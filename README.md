@@ -4,6 +4,8 @@
 
 A WordPress activity log for what matters
 
+This is the ad-free version.
+
 Simple History is a WordPress audit log plugin that logs various things that occur in WordPress and then presents those events in a very nice GUI.  
 It's great way to view user activity and keep an eye on what the admin users of a website are doing.
 

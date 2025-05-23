@@ -1,6 +1,6 @@
 <?php
 /**
- * Plugin Name: Simple History
+ * Plugin Name: Simple History (ad free)
  * Plugin URI: https://simple-history.com
  * Text Domain: simple-history
  * Description: Plugin that logs various things that occur in WordPress and then presents those events in a very nice GUI.
