@@ -1216,7 +1216,7 @@ class Helpers {
 
 		// If it does not exist, then default so the option can auto-load.
 		if ( false === $setting ) {
-			$setting = 'top';
+			$setting = 'inside_dashboard';
 			update_option( $option_slug, $setting, true );
 		}
 
