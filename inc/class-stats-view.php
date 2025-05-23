@@ -771,22 +771,6 @@ class Stats_View {
 				$date_to
 			);
 
-			// Colorful charts.
-			self::output_chart_section(
-				_x( 'Peak activity times', 'stats section title', 'simple-history' ),
-				'peakTimesChart'
-			);
-
-			self::output_chart_section(
-				_x( 'Peak activity days', 'stats section title', 'simple-history' ),
-				'peakDaysChart'
-			);
-
-			// Boxes with stats numbers.
-			self::output_plugin_stats();
-			self::output_user_stats_section();
-			self::output_posts_pages_stats_section();
-			self::output_media_stats_section();
 			?>
 		</div>
 		<?php
