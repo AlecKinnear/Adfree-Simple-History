@@ -32,8 +32,7 @@ class GUICest {
                 $I->see('Stats');
                 $I->see('Number of events per day.');
                 $I->see('Settings');
-                
-                $I->see('Review this plugin if you like it');
+
                 $I->see('Visit the support forum');
                 $I->see('Donate to support development');
 

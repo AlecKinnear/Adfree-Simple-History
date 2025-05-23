@@ -37,27 +37,6 @@ class Sidebar_Dropin extends Dropin {
 			</div>
 		';
 
-		// Box about review.
-		$headline = _x( 'Review this plugin if you like it', 'Sidebar box', 'simple-history' );
-
-		$body1 = sprintf(
-			// translators: 1 is a link to the review page.
-			_x( 'If you like Simple History then please <a href="%1$s">give it a nice review over at wordpress.org</a>.', 'Sidebar box', 'simple-history' ),
-			'https://wordpress.org/support/view/plugin-reviews/simple-history'
-		);
-
-		$body2 = _x( 'A good review will help new users find this plugin. And it will make the plugin author very happy :)', 'Sidebar box', 'simple-history' );
-
-		$boxReview = '
-			<div class="postbox">
-				<h3 class="hndle">' . $headline . '</h3>
-				<div class="inside">
-					<p>' . $body1 . '</p>
-					<p>' . $body2 . '</p>
-				</div>
-			</div>
-		';
-
 		// Box about support.
 		$boxSupport = sprintf(
 			'
@@ -77,7 +56,6 @@ class Sidebar_Dropin extends Dropin {
 		);
 
 		$arrBoxes = array(
-			'boxReview' => $boxReview,
 			'boxDonate' => $boxDonate,
 			'boxSupport' => $boxSupport,
 		);

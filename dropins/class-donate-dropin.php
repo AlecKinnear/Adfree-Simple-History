@@ -22,48 +22,6 @@ class Donate_Dropin extends Dropin {
 		// Prio 50 so it's added after the built in settings.
 		add_action( 'admin_menu', array( $this, 'add_settings' ), 50 );
 		add_filter( 'plugin_row_meta', array( $this, 'action_plugin_row_meta' ), 10, 2 );
-		add_filter( 'admin_footer_text', array( $this, 'filter_admin_footer_text' ), 10, 1 );
-	}
-
-	/**
-	 * Add donate link to the admin footer.
-	 *
-	 * Called from filter 'admin_footer_text'.
-	 *
-	 * @param string|bool $text Admin footer text. Can be false apparently because it was once.
-	 * @return string
-	 */
-	public function filter_admin_footer_text( $text ) {
-		if ( Helpers::is_on_our_own_pages() === false ) {
-			return $text;
-		}
-
-		if ( Helpers::get_current_screen()->base === 'dashboard' ) {
-			return $text;
-		}
-
-		if ( is_bool( $text ) ) {
-			$text = '';
-		}
-
-		// Bail if not string because have no idea what's going on then.
-		if ( ! is_string( $text ) ) {
-			return $text;
-		}
-
-		// Add divider if text is not empty.
-		$divider = '';
-		if ( ! empty( $text ) ) {
-			$divider = ' | ';
-		}
-
-		$text .= $divider . sprintf(
-			/* translators: 1 is a link to the WordPress.org plugin review page for Simple History. */
-			__( 'Consider giving Simple History <a href="%1$s" target="_blank">a nice review at WordPress.org</a> if you find it useful.', 'simple-history' ),
-			'https://wordpress.org/support/plugin/simple-history/reviews/?filter=5#new-post',
-		);
-
-		return $text;
 	}
 
 	/**
