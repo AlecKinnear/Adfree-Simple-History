@@ -23,31 +23,5 @@ defined( 'ABSPATH' ) || die();
 			submit_button();
 			?>
 		</form>
-
-		<!-- 
-		This is currently placed placed wrong due to bug in do_settings_sections() that is
-		causing it to not output after_section-html.
-		Related track tickets:
-		https://core.trac.wordpress.org/ticket/62746
-		https://core.trac.wordpress.org/changeset/59564
-
-		Or wait, I solved it by adding an empty settings section to the support settings section.
-		-->
-		<?php
-		if ( ! Helpers::is_premium_add_on_active() ) {
-			?>
-			<div style="margin-top: 2rem;">
-				<?php
-				// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
-				echo Sidebar_Add_Ons_Dropin::get_premium_features_postbox_html();
-				// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
-				echo Sidebar_Add_Ons_Dropin::get_woocommerce_logger_features_postbox_html();
-				// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
-				echo Sidebar_Add_Ons_Dropin::get_debug_and_monitor_features_postbox_html();
-				?>
-			</div>
-			<?php
-		}
-		?>
 	</div>
 </div>

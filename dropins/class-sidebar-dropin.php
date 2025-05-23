@@ -13,7 +13,6 @@ class Sidebar_Dropin extends Dropin {
 	public function loaded() {
 		add_action( 'simple_history/enqueue_admin_scripts', array( $this, 'enqueue_admin_scripts' ) );
 		add_action( 'simple_history/history_page/after_gui', array( $this, 'output_sidebar_html' ) );
-		add_action( 'simple_history/dropin/sidebar/sidebar_html', array( $this, 'default_sidebar_contents' ) );
 	}
 
 	/**
