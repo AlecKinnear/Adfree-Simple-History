@@ -257,14 +257,12 @@ For more information, see our support page [GDPR and Privacy: How Your Data is S
 
 -   Plugin active/inactive status is now recorded when plugins are updated, shown in event details when the plugin was inactive at update time.
 -   Success confirmation and automatic log refresh after manually adding a log entry.
--   Action links (Edit, View) for media attachment events, plugin update events ("View changelog"), and user profile events ("Edit user").
--   "Edit menu" action link on menu events, and "Manage menu locations" action link on menu location events — jump straight from the log to the relevant nav menu screen.
--   "Show error message" action link on plugin install/update failure events — opens the event details modal where the underlying error message and diagnostic context are shown. Loggers can opt other events in via the new `Logger::event_has_more_details()` method, returning the label to render.
+-   Action links (Edit, View) for media attachments, plugins ("View changelog"), and user profiles ("Edit user").
+-   "Edit menu" and "Manage menu locations" action links on menu and menu-location events — jump straight from the log to the relevant nav menu screen.
+-   "Show error message" action link on plugin install/update failure events — opens the event details modal where the underlying error message and diagnostic context are shown. Loggers can opt other events in via the new `Logger::event_has_more_details()` method.
 -   `wp simple-history info` WP-CLI command — prints the installed version, premium add-on status, and a list of useful subcommands.
--   `date_relative` column for `wp simple-history list`, opt-in via `--fields=`, showing "5 minutes ago" style timestamps for easier scanning.
--   `site` column for `wp simple-history list`, opt-in via `--fields=`, showing the blog name and host — useful when piping or comparing output across multiple installs.
--   `ai_agent` column for `wp simple-history list`, opt-in via `--fields=`, showing the detected AI tool name (Claude Code, ChatGPT, etc.) when an event was initiated through an AI agent.
--   AI agent attribution on event log rows: when an event is triggered by a request from an AI tool (Claude Code, ChatGPT, Perplexity, MCP clients, the Abilities API, etc.), a sparkle icon and the agent name appear next to the user who initiated the event. The signed-in user remains the actual initiator — this is additional audit context, not an authentication signal. Detected from the Abilities API route, the RFC 9421 `Signature-Agent` header, MCP client headers, vendor-published user-agent identifiers, and WP-CLI environment hints.
+-   New opt-in columns for `wp simple-history list` via `--fields=`: `date_relative` ("5 minutes ago" style timestamps), `site` (blog name and host, useful when comparing output across installs), and `ai_agent` (detected AI tool name when an event was initiated through an AI agent).
+-   AI agent attribution on event log rows: when an event is triggered by an AI tool (Claude Code, ChatGPT, MCP clients, the Abilities API, etc.), a sparkle icon and the agent name appear next to the user who initiated the event. The signed-in user remains the actual initiator — this is additional audit context, not an authentication signal.
 -   "AI-initiated events only" filter in the expanded filters panel — quickly narrow the log to actions triggered via AI tools. The filter only appears on sites that have at least one AI-attributed event, so it stays out of the way otherwise.
 -   New "Copy as JSON" menu item for each event, that copies the full event payload — including all context data — for scripting and debugging.
 -   🧪 **Experimental** — "History" column on post and page list tables showing recent activity at a glance, with "View history" row action links.
@@ -272,12 +270,16 @@ For more information, see our support page [GDPR and Privacy: How Your Data is S
 
 **Changed**
 
--   12 loggers migrated from manual HTML output to the structured Event Details API, improving consistency and enabling structured JSON in the REST API.
+-   Event details for 12 loggers are now more consistent across the UI and structured in the REST API (migrated from manual HTML output to the Event Details API).
 -   Navigational links in comment and plugin events (e.g. "Edit comment", "View plugin info") moved from event details to the action links bar for better discoverability.
 -   Tips in the sidebar and the dashboard widget now draw from a single curated list, so both surfaces stay in sync and show context-appropriate advice.
 -   Date filter dropdown reorganized: "All dates" moved to the top as the reset option, presets grouped under "Recent" (Today through Last 60 days, plus "Custom range…"), and specific months grouped under "By month" — easier to scan and matches how users think about date ranges.
 -   "Copy detailed event message" action menu item renamed to "Copy as Markdown" with a richer Markdown layout (heading + properties table + structured details + context table) suitable for pasting into a ticket, Slack, or notes app. The Details section reflects what the event row shows (e.g. plugin description / version / author for plugin install events).
 -   Stats page "Events overview" chart and sidebar "History Insights" daily activity chart switched from line charts to bar charts, with today highlighted in a contrasting accent color for at-a-glance recency.
+
+**Security**
+
+-   Event reaction endpoints (`/events/<id>/react` and `/unreact`) now enforce per-event read permissions. Previously they only checked that the user was logged in, which could allow a low-privileged user to read the context of any event — including password-reset URLs logged by the user logger — when the experimental features setting was enabled. The reactions feature is experimental and off by default. Reported by Wordfence.
 
 **Fixed**
 
