@@ -280,6 +280,7 @@ For more information, see our support page [GDPR and Privacy: How Your Data is S
 **Security**
 
 -   Event reaction endpoints (`/events/<id>/react` and `/unreact`) now enforce per-event read permissions. Previously they only checked that the user was logged in, which could allow a low-privileged user to read the context of any event — including password-reset URLs logged by the user logger — when the experimental features setting was enabled. The reactions feature is experimental and off by default. Reported by Wordfence.
+-   Password reset request events no longer store the full reset email body in their context. The reset URL embedded in that email contains the activation key and is credential-equivalent until it expires or is consumed; storing it in the log meant anyone with read access to that log row (including database backups and log forwarders) could complete the reset. The audit signal — which user requested the reset, when, and from where — is preserved via the existing `user_login`, `user_email`, and origin fields. Existing log rows are not modified; the change only affects new events.
 
 **Fixed**
 

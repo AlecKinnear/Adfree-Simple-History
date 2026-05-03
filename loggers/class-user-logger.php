@@ -687,8 +687,9 @@ class User_Logger extends Logger {
 	 * @param object $user_data  WP_User object.
 	 */
 	public function onRetrievePasswordMessage( $message, $key, $user_login, $user_data = null ) {
+		// Do not log $message: it contains the password reset URL (with the activation key),
+		// which is credential-equivalent until the key expires or is consumed.
 		$context = array(
-			'message'    => $message,
 			'user_login' => $user_login,
 			'user_email' => $user_data->user_email,
 		);
