@@ -1011,20 +1011,6 @@ class User_Logger extends Logger {
 				'_occasionsID'           => self::class . '/failed_user_login',
 			);
 
-			/**
-			 * Maybe store password too
-			 * Default is to not do this because of privacy and security
-			 *
-			 * @since 2.0
-			 *
-			 * @param bool $log_password
-			 */
-			$log_password = apply_filters( 'simple_history/comments_logger/log_failed_password', false );
-
-			if ( $log_password ) {
-				$context['login_user_password'] = $password;
-			}
-
 			$this->warning_message( 'user_login_failed', $context );
 		}
 
@@ -1071,23 +1057,6 @@ class User_Logger extends Logger {
 				// to prevent log being flooded with login/hack attempts.
 				'_occasionsID'           => self::class . '/failed_user_login',
 			);
-
-			/**
-			 * Maybe store password too
-			 * Default is to not do this because of privacy and security
-			 *
-			 * @since 2.0
-			 *
-			 * @param bool $log_password
-			 */
-			$log_password = false;
-			$log_password = apply_filters(
-				'simple_history/comments_logger/log_not_existing_user_password',
-				$log_password
-			);
-			if ( $log_password ) {
-				$context['failed_login_password'] = $password;
-			}
 
 			$this->warning_message( 'user_unknown_login_failed', $context );
 		}
