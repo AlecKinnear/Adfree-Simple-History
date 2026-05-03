@@ -196,7 +196,7 @@ class WP_REST_Events_Controller extends WP_REST_Controller {
 				[
 					'methods'             => WP_REST_Server::CREATABLE,
 					'callback'            => [ $this, 'react_to_event' ],
-					'permission_callback' => [ $this, 'get_items_permissions_check' ],
+					'permission_callback' => [ $this, 'get_item_permissions_check' ],
 				],
 			],
 		);
@@ -216,7 +216,7 @@ class WP_REST_Events_Controller extends WP_REST_Controller {
 				[
 					'methods'             => WP_REST_Server::CREATABLE,
 					'callback'            => [ $this, 'unreact_to_event' ],
-					'permission_callback' => [ $this, 'get_items_permissions_check' ],
+					'permission_callback' => [ $this, 'get_item_permissions_check' ],
 				],
 			],
 		);
