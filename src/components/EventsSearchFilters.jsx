@@ -5,7 +5,10 @@ import { useEffect, useMemo, useState, Fragment } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 import { addQueryArgs } from '@wordpress/url';
 import { settings, chevronDown } from '@wordpress/icons';
-import { DEFAULT_DATE_OPTIONS, OPTIONS_LOADING } from '../constants';
+import {
+	DATE_OPTION_GROUPS_LOADING,
+	DEFAULT_DATE_OPTION_GROUPS,
+} from '../constants';
 import { DefaultFilters } from './DefaultFilters';
 import { ExpandedFilters } from './ExpandedFilters';
 
@@ -40,6 +43,8 @@ export function EventsSearchFilters( props ) {
 		setSelectedContextFilters,
 		enteredMetadataSearch,
 		setEnteredMetadataSearch,
+		showAIOnly,
+		setShowAIOnly,
 		searchOptionsLoaded,
 		setSearchOptionsLoaded,
 		setPagerSize,
@@ -87,6 +92,9 @@ export function EventsSearchFilters( props ) {
 		if ( enteredMetadataSearch.trim().length > 0 ) {
 			count++;
 		}
+		if ( showAIOnly ) {
+			count++;
+		}
 		if ( hideOwnEvents ) {
 			count++;
 		}
@@ -99,6 +107,7 @@ export function EventsSearchFilters( props ) {
 		enteredIPAddress,
 		selectedContextFilters,
 		enteredMetadataSearch,
+		showAIOnly,
 		hideOwnEvents,
 	] );
 
@@ -112,7 +121,9 @@ export function EventsSearchFilters( props ) {
 	const [ isManuallyExpanded, setIsManuallyExpanded ] = useState( null );
 	const moreOptionsIsExpanded =
 		isManuallyExpanded !== null ? isManuallyExpanded : isAutoExpanded;
-	const [ dateOptions, setDateOptions ] = useState( OPTIONS_LOADING );
+	const [ dateOptionGroups, setDateOptionGroups ] = useState(
+		DATE_OPTION_GROUPS_LOADING
+	);
 	const [ searchOptions, setSearchOptions ] = useState( null );
 
 	// Wrap parent's clear handler to also reset local UI state.
@@ -142,7 +153,20 @@ export function EventsSearchFilters( props ) {
 
 				setSearchOptions( searchOptionsResponse );
 
-				// Append result_months and all dates to dateOptions.
+				// "All dates" is rendered as an ungrouped option at the
+				// very top — it's the conventional "reset/clear" slot
+				// in a select, immediately discoverable, and avoids the
+				// orphaned-option problem of placing it after optgroups.
+				const allDatesGroup = {
+					label: '',
+					options: [
+						{
+							label: __( 'All dates', 'simple-history' ),
+							value: 'allDates',
+						},
+					],
+				};
+
 				const monthsOptions =
 					searchOptionsResponse.dates.result_months.map(
 						( row ) => ( {
@@ -151,15 +175,15 @@ export function EventsSearchFilters( props ) {
 						} )
 					);
 
-				const allDatesOption = {
-					label: __( 'All dates', 'simple-history' ),
-					value: 'allDates',
+				const monthsGroup = {
+					label: __( 'By month', 'simple-history' ),
+					options: monthsOptions,
 				};
 
-				setDateOptions( [
-					...DEFAULT_DATE_OPTIONS,
-					...monthsOptions,
-					allDatesOption,
+				setDateOptionGroups( [
+					allDatesGroup,
+					...DEFAULT_DATE_OPTION_GROUPS,
+					monthsGroup,
 				] );
 
 				// Store the default date option for use when clearing filters.
@@ -270,7 +294,7 @@ export function EventsSearchFilters( props ) {
 			<div className="SimpleHistory-filters">
 				<div className="SimpleHistory-filters__searchRow">
 					<DefaultFilters
-						dateOptions={ dateOptions }
+						dateOptionGroups={ dateOptionGroups }
 						selectedDateOption={ selectedDateOption }
 						setSelectedDateOption={ setSelectedDateOption }
 						searchText={ enteredSearchText }
@@ -343,6 +367,8 @@ export function EventsSearchFilters( props ) {
 							setEnteredMetadataSearch={
 								setEnteredMetadataSearch
 							}
+							showAIOnly={ showAIOnly }
+							setShowAIOnly={ setShowAIOnly }
 							isExperimentalFeaturesEnabled={
 								isExperimentalFeaturesEnabled
 							}

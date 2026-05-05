@@ -2,6 +2,9 @@
 
 namespace Simple_History\Loggers;
 
+use Simple_History\Event_Details\Event_Details_Container;
+use Simple_History\Event_Details\Event_Details_Group;
+use Simple_History\Event_Details\Event_Details_Item;
 use Simple_History\Helpers;
 use Simple_History\Log_Initiators;
 
@@ -877,6 +880,7 @@ class Plugin_Logger extends Logger {
 			'plugin_author'      => $plugin_data['Author'] ?? '',
 			'plugin_version'     => $plugin_data['Version'] ?? '',
 			'plugin_url'         => $plugin_data['PluginURI'] ?? '',
+			'plugin_was_active'  => is_plugin_active( $arr_data['plugin'] ) ? '1' : '0',
 		];
 
 		// Add Update URI if it is set. Available since WP 5.8.
@@ -1000,6 +1004,7 @@ class Plugin_Logger extends Logger {
 				'plugin_author'         => $plugin_data['Author'] ?? '',
 				'plugin_version'        => $plugin_data['Version'] ?? '',
 				'plugin_url'            => $plugin_data['PluginURI'] ?? '',
+				'plugin_was_active'     => is_plugin_active( $plugin_main_file_path ) ? '1' : '0',
 			];
 
 			// Add Update URI if it is set. Available since WP 5.8.
@@ -1306,291 +1311,274 @@ class Plugin_Logger extends Logger {
 	public function get_log_row_details_output( $row ) {
 		$context     = $row->context;
 		$message_key = $context['_message_key'];
-		$output      = '';
 
 		switch ( $message_key ) {
 			case 'plugin_installed':
-				$output = $this->get_plugin_installed_details_output( $context );
-				break;
+				return $this->get_plugin_installed_details_group( $context );
 			case 'plugin_bulk_updated':
 			case 'plugin_updated':
+				return $this->get_plugin_updated_details_group( $context );
 			case 'plugin_activated':
 			case 'plugin_deactivated':
-				$output = $this->get_plugin_action_details_output( $context, $message_key );
-				break;
+				return '';
 		}
 
-		return $output;
+		return '';
 	}
 
 	/**
-	 * Get detailed output for plugin installation
+	 * Get action links for a log row.
 	 *
-	 * @param array $context Log context.
-	 * @return string HTML output.
+	 * Shows "View plugin info" or "View changelog" thickbox links.
+	 *
+	 * @param object $row Log row object.
+	 * @return array Array of action link arrays.
 	 */
-	private function get_plugin_installed_details_output( $context ) {
-		$output = '';
+	/**
+	 * Failure-path events store the underlying error in context (error_code,
+	 * error_message, plus the raw upgrader package_result for rollbacks).
+	 * Surface a "Show error message" link so users can open the modal and
+	 * see what actually went wrong without hunting through the row dropdown.
+	 *
+	 * @param object $row Log row object.
+	 * @return string|false
+	 */
+	public function event_has_more_details( $row ) {
+		$context     = $row->context;
+		$message_key = $context['_message_key'] ?? '';
 
-		if ( ! isset( $context['plugin_description'] ) ) {
-			return $output;
+		$failure_message_keys = array(
+			'plugin_installed_failed',
+			'plugin_update_failed',
+			'plugin_bulk_updated_failed',
+			'plugin_disabled_because_error',
+		);
+
+		if ( ! in_array( $message_key, $failure_message_keys, true ) ) {
+			return false;
 		}
 
-		// Description includes a link to author, remove that, i.e. all text after and including <cite>.
+		// Only show the link when there's actually an error payload to read.
+		// Older failure events sometimes lack these keys, in which case the
+		// modal wouldn't reveal anything useful.
+		$has_error_payload = ! empty( $context['error_message'] )
+			|| ! empty( $context['error_code'] )
+			|| ! empty( $context['package_result_errors'] )
+			|| ! empty( $context['deactivation_reason'] );
+
+		if ( ! $has_error_payload ) {
+			return false;
+		}
+
+		return __( 'Show error message', 'simple-history' );
+	}
+
+	public function get_action_links( $row ) {
+		$context     = $row->context;
+		$message_key = $context['_message_key'] ?? '';
+		$plugin_slug = empty( $context['plugin_slug'] ) ? '' : $context['plugin_slug'];
+
+		// GitHub-hosted plugins use a different thickbox URL.
+		if ( ! empty( $context['plugin_github_url'] ) ) {
+			return [
+				[
+					'url'   => wp_nonce_url(
+						admin_url(
+							sprintf(
+								'admin-ajax.php?action=SimplePluginLogger_GetGitHubPluginInfo&getrepo&repo=%1$s&TB_iframe=true&width=640&height=550',
+								rawurlencode( $context['plugin_github_url'] )
+							)
+						),
+						'simple-history-github-plugin-info'
+					),
+					'label'  => _x( 'View plugin info', 'plugin logger: plugin info thickbox title view all info', 'simple-history' ),
+					'action' => 'view',
+				],
+			];
+		}
+
+		if ( ! $plugin_slug ) {
+			return [];
+		}
+
+		if ( in_array( $message_key, [ 'plugin_updated', 'plugin_bulk_updated' ], true ) ) {
+			$url = is_multisite()
+				? network_admin_url( "plugin-install.php?tab=plugin-information&plugin={$plugin_slug}&section=changelog&TB_iframe=true&width=772&height=550" )
+				: admin_url( "plugin-install.php?tab=plugin-information&plugin={$plugin_slug}&section=changelog&TB_iframe=true&width=772&height=550" );
+
+			return [
+				[
+					'url'    => $url,
+					'label'  => _x( 'View changelog', 'plugin logger: plugin info thickbox title', 'simple-history' ),
+					'action' => 'view',
+				],
+			];
+		}
+
+		if ( in_array( $message_key, [ 'plugin_installed', 'plugin_activated', 'plugin_deactivated' ], true ) ) {
+			return [
+				[
+					'url'    => admin_url( "plugin-install.php?tab=plugin-information&plugin={$plugin_slug}&section=&TB_iframe=true&width=640&height=550" ),
+					'label'  => _x( 'View plugin info', 'plugin logger: plugin info thickbox title view all info', 'simple-history' ),
+					'action' => 'view',
+				],
+			];
+		}
+
+		return [];
+	}
+
+	/**
+	 * Get Event_Details_Group for installed plugin details.
+	 *
+	 * @param array $context Log context.
+	 * @return Event_Details_Group|string
+	 */
+	private function get_plugin_installed_details_group( $context ) {
+		if ( ! isset( $context['plugin_description'] ) ) {
+			return '';
+		}
+
+		// Description includes a link to author after <cite>; strip it and any HTML.
 		$plugin_description = $context['plugin_description'];
 		$cite_pos           = strpos( $plugin_description, '<cite>' );
-		if ( $cite_pos ) {
+
+		if ( $cite_pos !== false ) {
 			$plugin_description = substr( $plugin_description, 0, $cite_pos );
 		}
 
-		// Keys to show.
-		$arr_plugin_keys = array(
-			'plugin_description'         => _x( 'Description', 'plugin logger - detailed output', 'simple-history' ),
-			'plugin_install_source'      => _x( 'Source', 'plugin logger - detailed output install source', 'simple-history' ),
-			'plugin_install_source_file' => _x( 'Source file name', 'plugin logger - detailed output install source', 'simple-history' ),
-			'plugin_version'             => _x( 'Version', 'plugin logger - detailed output version', 'simple-history' ),
-			'plugin_author'              => _x( 'Author', 'plugin logger - detailed output author', 'simple-history' ),
-			'plugin_url'                 => _x( 'URL', 'plugin logger - detailed output url', 'simple-history' ),
+		$plugin_description = trim( wp_strip_all_tags( $plugin_description ) );
+
+		// Author header is often wrapped in <a href="...">Name</a> by WP — flatten to plain text.
+		$plugin_author = isset( $context['plugin_author'] )
+			? trim( wp_strip_all_tags( $context['plugin_author'] ) )
+			: '';
+
+		// Translate install source codes to readable labels.
+		$install_source       = $context['plugin_install_source'] ?? '';
+		$install_source_label = '';
+
+		if ( $install_source === 'web' ) {
+			$install_source_label = __( 'WordPress Plugin Repository', 'simple-history' );
+		} elseif ( $install_source === 'upload' ) {
+			$install_source_label = __( 'Uploaded ZIP archive', 'simple-history' );
+		} elseif ( $install_source !== '' ) {
+			$install_source_label = $install_source;
+		}
+
+		// Source filename only meaningful for uploaded archives.
+		$install_source_file = '';
+
+		if ( $install_source === 'upload' && ! empty( $context['plugin_upload_name'] ) ) {
+			$install_source_file = $context['plugin_upload_name'];
+		}
+
+		// Map of context-key => [ label, value ]. Empty values are skipped.
+		$rows = array(
+			'plugin_description'         => array( _x( 'Description', 'plugin logger - detailed output', 'simple-history' ), $plugin_description ),
+			'plugin_install_source'      => array( _x( 'Source', 'plugin logger - detailed output install source', 'simple-history' ), $install_source_label ),
+			'plugin_install_source_file' => array( _x( 'Source file name', 'plugin logger - detailed output install source', 'simple-history' ), $install_source_file ),
+			'plugin_version'             => array( _x( 'Version', 'plugin logger - detailed output version', 'simple-history' ), $context['plugin_version'] ?? '' ),
+			'plugin_author'              => array( _x( 'Author', 'plugin logger - detailed output author', 'simple-history' ), $plugin_author ),
+			'plugin_url'                 => array( _x( 'URL', 'plugin logger - detailed output url', 'simple-history' ), $context['plugin_url'] ?? '' ),
 		);
 
-		$arr_plugin_keys = apply_filters( 'simple_history/plugin_logger/row_details_plugin_info_keys', $arr_plugin_keys );
+		// Backward-compatible filter: receives map of context-key => label.
+		$arr_plugin_keys = apply_filters(
+			'simple_history/plugin_logger/row_details_plugin_info_keys',
+			wp_list_pluck( $rows, 0 )
+		);
 
-		// Start output of plugin meta data table.
-		$output .= "<table class='SimpleHistoryLogitem__keyValueTable'>";
+		$group = new Event_Details_Group();
 
-		foreach ( $arr_plugin_keys as $key => $desc ) {
-			$desc_output = $this->get_plugin_key_description_output( $key, $context, $plugin_description );
+		foreach ( $arr_plugin_keys as $key => $label ) {
+			// Prefer our prepared value; fall back to raw context for keys added via filter.
+			$value = isset( $rows[ $key ][1] )
+				? $rows[ $key ][1]
+				: ( $context[ $key ] ?? '' );
 
-			if ( trim( $desc_output ) === '' ) {
+			if ( trim( (string) $value ) === '' ) {
 				continue;
 			}
 
-			$output .= sprintf(
-				'
-				<tr>
-					<td>%1$s</td>
-					<td>%2$s</td>
-				</tr>
-				',
-				esc_html( $desc ),
-				$desc_output
+			$group->add_item(
+				( new Event_Details_Item( $key, $label ) )->set_new_value( $value )
 			);
 		}
 
-		// Add link with more info about the plugin.
-		$output .= $this->get_plugin_info_link( $context );
-
-		$output .= '</table>';
-
-		return $output;
+		return $group;
 	}
 
 	/**
-	 * Get description output for a specific plugin key
-	 *
-	 * @param string $key Plugin key.
-	 * @param array  $context Log context.
-	 * @param string $plugin_description Plugin description.
-	 * @return string Description output.
-	 */
-	private function get_plugin_key_description_output( $key, $context, $plugin_description ) {
-		switch ( $key ) {
-			case 'plugin_downloaded':
-				return esc_html( number_format_i18n( (int) $context[ $key ] ) );
-
-			case 'plugin_author':
-				// Author is already formatted.
-				return $context[ $key ];
-
-			case 'plugin_url':
-				return sprintf( '<a href="%1$s">%2$s</a>', esc_attr( $context['plugin_url'] ), esc_html( $context['plugin_url'] ) );
-
-			case 'plugin_description':
-				return $plugin_description;
-
-			case 'plugin_install_source':
-				if ( ! isset( $context[ $key ] ) ) {
-					return '';
-				}
-
-				if ( $context[ $key ] === 'web' ) {
-					return esc_html( __( 'WordPress Plugin Repository', 'simple-history' ) );
-				}
-
-				if ( $context[ $key ] === 'upload' ) {
-					return esc_html( __( 'Uploaded ZIP archive', 'simple-history' ) );
-				}
-
-				return esc_html( $context[ $key ] );
-
-			case 'plugin_install_source_file':
-				if ( ! isset( $context['plugin_upload_name'] ) || ! isset( $context['plugin_install_source'] ) ) {
-					return '';
-				}
-
-				if ( $context['plugin_install_source'] === 'upload' ) {
-					$plugin_upload_name = $context['plugin_upload_name'];
-					return esc_html( $plugin_upload_name );
-				}
-
-				return '';
-
-			default:
-				return esc_html( $context[ $key ] );
-		}
-	}
-
-	/**
-	 * Get plugin info link
+	 * Get Event_Details_Group for plugin update details.
 	 *
 	 * @param array $context Log context.
-	 * @return string HTML output.
+	 * @return Event_Details_Group|string
 	 */
-	private function get_plugin_info_link( $context ) {
-		$output      = '';
-		$plugin_slug = empty( $context['plugin_slug'] ) ? '' : $context['plugin_slug'];
-
-		// Slug + web as install source = show link to wordpress.org.
-		if ( $plugin_slug && isset( $context['plugin_install_source'] ) && $context['plugin_install_source'] === 'web' ) {
-			$output .= sprintf(
-				'
-				<tr>
-					<td></td>
-					<td><a title="%2$s" class="thickbox" href="%1$s">%2$s</a></td>
-				</tr>
-				',
-				admin_url( "plugin-install.php?tab=plugin-information&amp;plugin={$plugin_slug}&amp;section=&amp;TB_iframe=true&amp;width=640&amp;height=550" ),
-				esc_html_x( 'View plugin info', 'plugin logger: plugin info thickbox title view all info', 'simple-history' )
-			);
-		} elseif ( isset( $context['plugin_install_source'] ) && $context['plugin_install_source'] === 'upload' && ! empty( $context['plugin_github_url'] ) ) {
-			$output .= sprintf(
-				'
-				<tr>
-					<td></td>
-					<td><a title="%2$s" class="thickbox" href="%1$s">%2$s</a></td>
-				</tr>
-				',
-				wp_nonce_url( admin_url( sprintf( 'admin-ajax.php?action=SimplePluginLogger_GetGitHubPluginInfo&getrepo&amp;repo=%1$s&amp;TB_iframe=true&amp;width=640&amp;height=550', esc_url_raw( $context['plugin_github_url'] ) ) ), 'simple-history-github-plugin-info' ),
-				esc_html_x( 'View plugin info', 'plugin logger: plugin info thickbox title view all info', 'simple-history' )
-			);
-		}
-
-		return $output;
-	}
-
-	/**
-	 * Get detailed output for plugin actions (update, activate, deactivate)
-	 *
-	 * @param array  $context Log context.
-	 * @param string $message_key Message key.
-	 * @return string HTML output.
-	 */
-	private function get_plugin_action_details_output( $context, $message_key ) {
-		$output         = '';
+	private function get_plugin_updated_details_group( $context ) {
 		$plugin_slug    = empty( $context['plugin_slug'] ) ? '' : $context['plugin_slug'];
 		$plugin_version = empty( $context['plugin_version'] ) ? '' : $context['plugin_version'];
 
-		if ( $plugin_slug && empty( $context['plugin_github_url'] ) ) {
-			$link_title = esc_html_x( 'View plugin info', 'plugin logger: plugin info thickbox title', 'simple-history' );
-			$url        = admin_url( "plugin-install.php?tab=plugin-information&amp;plugin={$plugin_slug}&amp;section=&amp;TB_iframe=true&amp;width=640&amp;height=550" );
+		$groups = [];
 
-			if ( in_array( $message_key, [ 'plugin_updated', 'plugin_bulk_updated' ], true ) ) {
-				$link_title = esc_html_x( 'View changelog', 'plugin logger: plugin info thickbox title', 'simple-history' );
+		/**
+		 * Allow plugins (or Simple History itself) to add extra details to the plugin update details output.
+		 *
+		 * @param string $extra_details Extra HTML to output. Probably empty string.
+		 */
+		$extra_details = apply_filters( "simple_history/pluginlogger/plugin_updated_details/{$plugin_slug}", '' );
 
-				if ( is_multisite() ) {
-					$url = network_admin_url( "plugin-install.php?tab=plugin-information&amp;plugin={$plugin_slug}&amp;section=changelog&amp;TB_iframe=true&amp;width=772&amp;height=550" );
-				} else {
-					$url = admin_url( "plugin-install.php?tab=plugin-information&amp;plugin={$plugin_slug}&amp;section=changelog&amp;TB_iframe=true&amp;width=772&amp;height=550" );
-				}
+		/**
+		 * Allow plugins (or Simple History itself) to add extra details to the plugin update details output.
+		 *
+		 * @param string $extra_details Extra HTML to output. Probably empty string.
+		 */
+		$extra_details = apply_filters( "simple_history/pluginlogger/plugin_updated_details/{$plugin_slug}/{$plugin_version}", $extra_details );
 
-				/**
-				 * Allow plugins (or Simple History itself) to add extra details to the plugin update details output.
-				 *
-				 * The filter name is dynamic and includes the plugin slug and version to ensure specificity:
-				 *   simple_history/pluginlogger/plugin_updated_details/{plugin_slug}/{plugin_version}
-				 *
-				 * Example with actual values:
-				 *   simple_history/pluginlogger/plugin_updated_details/simple-history
-				 *
-				 * @param string $extra_details   Extra HTML to output after the changelog link. Probably empty string.
-				 */
-				$extra_details = apply_filters( "simple_history/pluginlogger/plugin_updated_details/{$plugin_slug}", '' );
+		// Extra details from filters (raw HTML).
+		if ( ! empty( $extra_details ) ) {
+			$groups[] = Event_Details_Group::create_raw( $extra_details );
+		}
 
-				/**
-				 * Allow plugins (or Simple History itself) to add extra details to the plugin update details output.
-				 *
-				 * The filter name is dynamic and includes the plugin slug and version to ensure specificity:
-				 *   simple_history/pluginlogger/plugin_updated_details/{plugin_slug}/{plugin_version}
-				 *
-				 * Example with actual values:
-				 *   simple_history/pluginlogger/plugin_updated_details/simple-history/5.14.0
-				 *
-				 * @param string $extra_details   Extra HTML to output after the changelog link. Probably empty string.
-				 */
-				$extra_details = apply_filters( "simple_history/pluginlogger/plugin_updated_details/{$plugin_slug}/{$plugin_version}", $extra_details );
+		$info_group = new Event_Details_Group();
 
-				if ( ! empty( $extra_details ) ) {
-					$output .= $extra_details;
-				}
-
-				// Display update method and upgrade notice in a key-value table.
-				$update_info_rows = [];
-
-				// Add update method row only for forced security updates (unexpected).
-				// Skip for user-enabled auto-updates (expected) and manual updates (obvious).
-				$plugin_update_type = $context['plugin_update_type'] ?? '';
-				if ( $plugin_update_type === 'forced_security' ) {
-					$update_info_rows[] = [
-						'label' => _x( 'Update method', 'plugin logger: update method label', 'simple-history' ),
-						'value' => _x( 'Security auto-update', 'plugin logger: forced security update method', 'simple-history' ),
-					];
-				}
-
-				// Add upgrade notice from WordPress.org if available.
-				// Limit length to prevent UI flooding from malicious/broken sources.
-				if ( ! empty( $context['plugin_upgrade_notice'] ) ) {
-					$upgrade_notice = wp_strip_all_tags( $context['plugin_upgrade_notice'] );
-					$upgrade_notice = wp_trim_words( $upgrade_notice, 30, '…' );
-
-					$update_info_rows[] = [
-						'label' => _x( 'Update notice', 'plugin logger: update notice label', 'simple-history' ),
-						'value' => $upgrade_notice,
-					];
-				}
-
-				// Output table if there are any rows.
-				if ( ! empty( $update_info_rows ) ) {
-					$output .= '<table class="SimpleHistoryLogitem__keyValueTable">';
-					foreach ( $update_info_rows as $row ) {
-						$output .= sprintf(
-							'<tr><td>%1$s</td><td>%2$s</td></tr>',
-							esc_html( $row['label'] ),
-							esc_html( $row['value'] )
-						);
-					}
-					$output .= '</table>';
-				}
-			}
-
-			$output .= sprintf(
-				'<p><a title="%2$s" class="thickbox" href="%1$s">%2$s</a></p>',
-				$url,
-				$link_title
-			);
-		} elseif ( ! empty( $context['plugin_github_url'] ) ) {
-			$output .= sprintf(
-				'
-				<tr>
-					<td></td>
-					<td><a title="%2$s" class="thickbox" href="%1$s">%2$s</a></td>
-				</tr>
-				',
-				wp_nonce_url( admin_url( sprintf( 'admin-ajax.php?action=SimplePluginLogger_GetGitHubPluginInfo&getrepo&amp;repo=%1$s&amp;TB_iframe=true&amp;width=640&amp;height=550', esc_url_raw( $context['plugin_github_url'] ) ) ), 'simple-history-github-plugin-info' ),
-				esc_html_x( 'View plugin info', 'plugin logger: plugin info thickbox title view all info', 'simple-history' )
+		if ( isset( $context['plugin_was_active'] ) ) {
+			$info_group->add_item(
+				( new Event_Details_Item( null, _x( 'Status at update', 'plugin logger: plugin active status label', 'simple-history' ) ) )
+					->set_new_value(
+						$context['plugin_was_active'] === '1'
+							? _x( 'Active', 'plugin logger: plugin was active at update', 'simple-history' )
+							: _x( 'Inactive', 'plugin logger: plugin was inactive at update', 'simple-history' )
+					)
 			);
 		}
 
-		return $output;
+		$plugin_update_type = $context['plugin_update_type'] ?? '';
+		if ( $plugin_update_type === 'forced_security' ) {
+			$info_group->add_item(
+				( new Event_Details_Item( null, _x( 'Update method', 'plugin logger: update method label', 'simple-history' ) ) )
+					->set_new_value( _x( 'Security auto-update', 'plugin logger: forced security update method', 'simple-history' ) )
+			);
+		}
+
+		if ( ! empty( $context['plugin_upgrade_notice'] ) ) {
+			$upgrade_notice = wp_strip_all_tags( $context['plugin_upgrade_notice'] );
+			$upgrade_notice = wp_trim_words( $upgrade_notice, 30, '…' );
+			$info_group->add_item(
+				( new Event_Details_Item( null, _x( 'Update notice', 'plugin logger: update notice label', 'simple-history' ) ) )
+					->set_new_value( $upgrade_notice )
+			);
+		}
+
+		if ( ! empty( $info_group->items ) ) {
+			$groups[] = $info_group;
+		}
+
+		if ( empty( $groups ) ) {
+			return '';
+		}
+
+		return Event_Details_Container::create_from( $groups );
 	}
 
 	/**

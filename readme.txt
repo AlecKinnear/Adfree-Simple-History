@@ -249,6 +249,49 @@ For more information, see our support page [GDPR and Privacy: How Your Data is S
 -   [Add a 5-star review so other users know it's good.](https://wordpress.org/support/plugin/simple-history/reviews/?filter=5)
 -   [Get the premium add-on for more features.](https://simple-history.com/add-ons/premium?utm_source=wordpress_org&utm_medium=plugin_directory&utm_campaign=documentation&utm_content=readme_doc_premium)
 
+### Unreleased
+
+> 🧪 **Experimental** entries are gated behind the experimental features setting (Settings → Simple History → Experimental). Enable it to try them, then share feedback so we know what to ship for everyone.
+
+**Added**
+
+-   Plugin active/inactive status is now recorded when plugins are updated, shown in event details when the plugin was inactive at update time.
+-   Success confirmation and automatic log refresh after manually adding a log entry.
+-   Action links (Edit, View) for media attachments, plugins ("View changelog"), and user profiles ("Edit user").
+-   "Edit menu" and "Manage menu locations" action links on menu and menu-location events — jump straight from the log to the relevant nav menu screen.
+-   "Show error message" action link on plugin install/update failure events — opens the event details modal where the underlying error message and diagnostic context are shown. Loggers can opt other events in via the new `Logger::event_has_more_details()` method.
+-   `wp simple-history info` WP-CLI command — prints the installed version, premium add-on status, and a list of useful subcommands.
+-   New opt-in columns for `wp simple-history list` via `--fields=`: `date_relative` ("5 minutes ago" style timestamps), `site` (blog name and host, useful when comparing output across installs), and `ai_agent` (detected AI tool name when an event was initiated through an AI agent).
+-   AI agent attribution on event log rows: when an event is triggered by an AI tool (Claude Code, ChatGPT, MCP clients, the Abilities API, etc.), a sparkle icon and the agent name appear next to the user who initiated the event. The signed-in user remains the actual initiator — this is additional audit context, not an authentication signal.
+-   "AI-initiated events only" filter in the expanded filters panel — quickly narrow the log to actions triggered via AI tools.
+-   New "Copy as JSON" menu item for each event, that copies the full event payload — including all context data — for scripting and debugging.
+-   🧪 **Experimental** — "History" column on post and page list tables showing recent activity at a glance, with "View history" row action links.
+-   🧪 **Experimental** — Failed application password authentication on REST API and XML-RPC requests is now logged as a warning, with the attempted user, error code and message, request URI, request method, and user agent. Closes a visibility gap where wrong app password attempts left no trace in the log, while wp-login failures already did. Can also be toggled directly via the new `simple_history/log_failed_app_password_auth` filter.
+
+**Changed**
+
+-   Event details for 12 loggers are now more consistent across the UI and structured in the REST API (migrated from manual HTML output to the Event Details API).
+-   Navigational links in comment and plugin events (e.g. "Edit comment", "View plugin info") moved from event details to the action links bar for better discoverability.
+-   Tips in the sidebar and the dashboard widget now draw from a single curated list, so both surfaces stay in sync and show context-appropriate advice.
+-   Date filter dropdown reorganized: "All dates" moved to the top as the reset option, presets grouped under "Recent" (Today through Last 60 days, plus "Custom range…"), and specific months grouped under "By month" — easier to scan and matches how users think about date ranges.
+-   "Copy detailed event message" action menu item renamed to "Copy as Markdown" with a richer Markdown layout (heading + properties table + structured details + context table) suitable for pasting into a ticket, Slack, or notes app. The Details section reflects what the event row shows (e.g. plugin description / version / author for plugin install events).
+-   Stats page "Events overview" chart and sidebar "History Insights" daily activity chart switched from line charts to bar charts, with today highlighted in a contrasting accent color for at-a-glance recency.
+
+**Security**
+
+-   Event reaction endpoints (`/events/<id>/react` and `/unreact`) now enforce per-event read permissions. Previously they only checked that the user was logged in, which could allow a low-privileged user to read the context of any event — including password-reset URLs logged by the user logger — when the experimental features setting was enabled. The reactions feature is experimental and off by default. Reported by Wordfence.
+-   Password reset request events no longer store the full reset email body in their context. The reset URL embedded in that email contains the activation key and is credential-equivalent until it expires or is consumed; storing it in the log meant anyone with read access to that log row (including database backups and log forwarders) could complete the reset. The audit signal — which user requested the reset, when, and from where — is preserved via the existing `user_login`, `user_email`, and origin fields. Existing log rows are not modified; the change only affects new events.
+-   Removed the `simple_history/comments_logger/log_failed_password` and `simple_history/comments_logger/log_not_existing_user_password` filters, which let sites opt into storing the plaintext password from failed login attempts in the log. Both defaulted to off, but a failed login is often a real password mistyped on the username field, so the filters were too dangerous to keep around. Failed login events still capture the username, IP/origin, and user agent — sufficient signal for brute-force detection without the credential blast radius.
+-   `on_xmlrpc_call()` in the post logger no longer builds a context block from the raw XML-RPC request body before discarding it. The values were thrown away before the event was written, but `wp.deletePost`'s params include the caller's username and password, so even latent dead code referencing them was a foot-gun for anyone refactoring the method later.
+
+**Fixed**
+
+-   Retention upsell message showing "deleted in 0 days" when event deletion is imminent. Now shows "scheduled for deletion" instead.
+-   Sidebar tip that suggested clicking a user's avatar would filter the log — clicking actually opens a user details card, and the tip now reflects that.
+-   `wp simple-history dev reset` reported "1 options deleted" for the singular case; now uses proper plural handling via `_n()`.
+-   Menu logger flagging unrelated items as "Renamed" on every menu save. Items with HTML in their label, and items inheriting their label from a linked page, are no longer reported as renamed when nothing was actually changed.
+-   Menu logger not surfacing renames of the menu itself — the previous and new menu name are now shown in the event details when the "Menu Name" field is changed.
+
 ### 5.26.0 (April 2026)
 
 This version makes the log actions more discoverable by moving them out of the dropdown menu and into inline buttons. It also contains a new experimental feature: reactions!
@@ -258,8 +301,8 @@ This version makes the log actions more discoverable by moving them out of the d
 **Added**
 
 -   Media, Comments, and Themes sections to the weekly email summary report. Comments section only appears when comments are enabled on the site.
--   Event reactions — react to log events with a thumbs up emoji, with a Slack-style emoji picker in the actions bar. (experimental)
 -   `--fields` support for `wp simple-history list` WP-CLI command, including a `reactions` field showing reaction counts.
+-   🧪 **Experimental** — Event reactions: react to log events with a thumbs up emoji, with a Slack-style emoji picker in the actions bar.
 
 **Changed**
 
@@ -287,8 +330,8 @@ This release focuses on keeping your database lean. Three features that reduce l
 -   "/" keyboard shortcut to focus the search input, with a visual hint badge. Pressing Escape returns focus to the previously focused element.
 -   Settings and Premium/Get Premium buttons in the top-right header, replacing the Add-ons link.
 -   Email Reports settings moved to their own sub-tab under Settings for better discoverability.
--   Feature discovery bar in the page header showing active features and settings status with dot indicators. Each item links directly to its settings section for quick access. (experimental)
 -   New installs default to 30-day retention (existing installs keep 60 days), keeping your database lean from day one.
+-   🧪 **Experimental** — Feature discovery bar in the page header showing active features and settings status with dot indicators. Each item links directly to its settings section for quick access.
 
 **Changed**
 

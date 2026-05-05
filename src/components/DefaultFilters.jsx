@@ -9,13 +9,13 @@ import {
 	__experimentalInputControlPrefixWrapper as InputControlPrefixWrapper,
 } from '@wordpress/components';
 import { getSettings as getDateSettings } from '@wordpress/date';
-import { useEffect, useRef } from '@wordpress/element';
+import { Fragment, useEffect, useRef } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import { Icon, search } from '@wordpress/icons';
 
 export function DefaultFilters( props ) {
 	const {
-		dateOptions,
+		dateOptionGroups,
 		selectedDateOption,
 		setSelectedDateOption,
 		searchText,
@@ -210,11 +210,34 @@ export function DefaultFilters( props ) {
 				<SelectControl
 					__nextHasNoMarginBottom
 					__next40pxDefaultSize
-					options={ dateOptions }
 					value={ selectedDateOption }
 					onChange={ ( value ) => setSelectedDateOption( value ) }
 					className="SimpleHistory-filters__dateSelect"
-				/>
+				>
+					{ dateOptionGroups.map( ( group, groupIndex ) => {
+						const groupKey =
+							group.label || `__ungrouped_${ groupIndex }`;
+						const options = group.options.map( ( option ) => (
+							<option key={ option.value } value={ option.value }>
+								{ option.label }
+							</option>
+						) );
+
+						if ( ! group.label ) {
+							return (
+								<Fragment key={ groupKey }>
+									{ options }
+								</Fragment>
+							);
+						}
+
+						return (
+							<optgroup key={ groupKey } label={ group.label }>
+								{ options }
+							</optgroup>
+						);
+					} ) }
+				</SelectControl>
 
 				<Button
 					variant="secondary"

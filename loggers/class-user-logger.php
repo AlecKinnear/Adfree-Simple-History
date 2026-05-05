@@ -2,9 +2,11 @@
 namespace Simple_History\Loggers;
 
 use Error;
+use Simple_History\Event_Details\Event_Details_Group;
+use Simple_History\Event_Details\Event_Details_Item;
 use Simple_History\Existing_Data_Importer;
-use Simple_History\Log_Initiators;
 use Simple_History\Helpers;
+use Simple_History\Log_Initiators;
 
 /**
  * Logs changes to user logins (and logouts).
@@ -95,6 +97,16 @@ class User_Logger extends Logger {
 					'User revoke application password',
 					'simple-history'
 				),
+				'user_application_password_login_failed'   => _x(
+					'Failed to authenticate with application password for user "{login}"',
+					'Failed application password authentication on REST/XML-RPC',
+					'simple-history'
+				),
+				'user_application_password_unknown_login_failed' => _x(
+					'Failed to authenticate with application password for user "{failed_username}" (user does not exist)',
+					'Failed application password authentication for unknown user',
+					'simple-history'
+				),
 				'user_admin_page_access_denied'            => _x(
 					'Attempted to access restricted admin page "{admin_page}"',
 					'User was denied access to an admin page',
@@ -140,6 +152,10 @@ class User_Logger extends Logger {
 						),
 						_x( 'User application password deletion', 'User logger: search', 'simple-history' ) => array(
 							'user_application_password_revoked',
+						),
+						_x( 'Failed application password authentication', 'User logger: search', 'simple-history' ) => array(
+							'user_application_password_login_failed',
+							'user_application_password_unknown_login_failed',
 						),
 						_x( 'Admin page access denied', 'User logger: search', 'simple-history' ) => array(
 							'user_admin_page_access_denied',
@@ -195,6 +211,29 @@ class User_Logger extends Logger {
 		add_action( 'wp_create_application_password', array( $this, 'on_action_wp_create_application_password' ), 10, 4 );
 		add_action( 'wp_delete_application_password', array( $this, 'on_action_wp_delete_application_password' ), 10, 2 );
 		// TODO: there is also an action "wp_update_application_password". Used by rest api and fired when a user updates app password there.
+
+		// Failed application password authentication (REST/XML-RPC).
+		// Gated behind experimental features while we validate noise levels in the wild.
+		// Sites can additionally opt out via the `simple_history/log_failed_app_password_auth` filter.
+		/**
+		 * Filter whether failed application password authentication attempts should be logged.
+		 *
+		 * Defaults to true when experimental features are enabled. Set to false to disable
+		 * logging without turning off experimental features entirely (useful on sites with
+		 * heavy API traffic where the log would fill with brute-force noise).
+		 *
+		 * @since 5.x
+		 *
+		 * @param bool $should_log Whether to log failed application password authentication.
+		 */
+		$log_failed_app_password_auth = apply_filters(
+			'simple_history/log_failed_app_password_auth',
+			Helpers::experimental_features_is_enabled()
+		);
+
+		if ( $log_failed_app_password_auth ) {
+			add_action( 'application_password_failed_authentication', array( $this, 'on_application_password_failed_authentication' ), 10, 1 );
+		}
 
 		// Admin page access denied.
 		add_action( 'admin_page_access_denied', array( $this, 'on_admin_page_access_denied' ), 10 );
@@ -367,6 +406,74 @@ class User_Logger extends Logger {
 				'application_password_name' => $item['name'],
 			)
 		);
+	}
+
+	/**
+	 * Log failed application password authentication.
+	 *
+	 * Fired from action `application_password_failed_authentication` (since WP 5.6.0)
+	 * when an application password fails to authenticate a REST or XML-RPC request.
+	 *
+	 * Possible error codes from WordPress core:
+	 * - `invalid_username` / `invalid_email`     — username does not exist.
+	 * - `incorrect_password`                     — wrong application password.
+	 * - `application_passwords_disabled`         — disabled site-wide.
+	 * - `application_passwords_disabled_for_user` — disabled for this user.
+	 *
+	 * @param \WP_Error $error The authentication error.
+	 */
+	public function on_application_password_failed_authentication( $error ) {
+		// Guard against recursion: resolving the current user during the log write can
+		// re-trigger `determine_current_user` -> `wp_validate_application_password` and
+		// fire this action again. Also dedupes the action firing twice per request
+		// (once during `authenticate`, once during `determine_current_user`).
+		static $logged = false;
+
+		if ( $logged ) {
+			return;
+		}
+
+		$logged = true;
+
+		// phpcs:ignore WordPressVIPMinimum.Variables.ServerVariables.BasicAuthentication -- Reading the attempted username for security logging only; authentication is handled by WP core.
+		$attempted_username = sanitize_text_field( wp_unslash( $_SERVER['PHP_AUTH_USER'] ?? '' ) );
+		$error_code         = is_a( $error, 'WP_Error' ) ? $error->get_error_code() : '';
+		$error_message      = is_a( $error, 'WP_Error' ) ? wp_strip_all_tags( $error->get_error_message() ) : '';
+
+		$context = array(
+			'_initiator'             => Log_Initiators::WEB_USER,
+			'error_code'             => (string) $error_code,
+			'error_message'          => $error_message,
+			'request_uri'            => sanitize_text_field( wp_unslash( $_SERVER['REQUEST_URI'] ?? '' ) ),
+			'request_method'         => sanitize_text_field( wp_unslash( $_SERVER['REQUEST_METHOD'] ?? '' ) ),
+			// phpcs:ignore WordPressVIPMinimum.Variables.RestrictedVariables.cache_constraints___SERVER__HTTP_USER_AGENT__ -- User agent logging important for security (brute force detection). Accept VIP caching limitation.
+			'server_http_user_agent' => sanitize_text_field( wp_unslash( $_SERVER['HTTP_USER_AGENT'] ?? '' ) ),
+			'_occasionsID'           => self::class . '/failed_application_password_login',
+		);
+
+		$is_unknown_user = in_array( $error_code, array( 'invalid_username', 'invalid_email' ), true );
+
+		if ( $is_unknown_user ) {
+			$context['failed_username'] = $attempted_username;
+			$this->warning_message( 'user_application_password_unknown_login_failed', $context );
+
+			return;
+		}
+
+		$context['login'] = $attempted_username;
+
+		$user = $attempted_username !== '' ? get_user_by( 'login', $attempted_username ) : false;
+
+		if ( ! $user && is_email( $attempted_username ) ) {
+			$user = get_user_by( 'email', $attempted_username );
+		}
+
+		if ( $user instanceof \WP_User ) {
+			$context['login_id']    = $user->ID;
+			$context['login_email'] = $user->user_email;
+		}
+
+		$this->warning_message( 'user_application_password_login_failed', $context );
 	}
 
 	/**
@@ -580,8 +687,9 @@ class User_Logger extends Logger {
 	 * @param object $user_data  WP_User object.
 	 */
 	public function onRetrievePasswordMessage( $message, $key, $user_login, $user_data = null ) {
+		// Do not log $message: it contains the password reset URL (with the activation key),
+		// which is credential-equivalent until the key expires or is consumed.
 		$context = array(
-			'message'    => $message,
 			'user_login' => $user_login,
 			'user_email' => $user_data->user_email,
 		);
@@ -903,20 +1011,6 @@ class User_Logger extends Logger {
 				'_occasionsID'           => self::class . '/failed_user_login',
 			);
 
-			/**
-			 * Maybe store password too
-			 * Default is to not do this because of privacy and security
-			 *
-			 * @since 2.0
-			 *
-			 * @param bool $log_password
-			 */
-			$log_password = apply_filters( 'simple_history/comments_logger/log_failed_password', false );
-
-			if ( $log_password ) {
-				$context['login_user_password'] = $password;
-			}
-
 			$this->warning_message( 'user_login_failed', $context );
 		}
 
@@ -964,23 +1058,6 @@ class User_Logger extends Logger {
 				'_occasionsID'           => self::class . '/failed_user_login',
 			);
 
-			/**
-			 * Maybe store password too
-			 * Default is to not do this because of privacy and security
-			 *
-			 * @since 2.0
-			 *
-			 * @param bool $log_password
-			 */
-			$log_password = false;
-			$log_password = apply_filters(
-				'simple_history/comments_logger/log_not_existing_user_password',
-				$log_password
-			);
-			if ( $log_password ) {
-				$context['failed_login_password'] = $password;
-			}
-
 			$this->warning_message( 'user_unknown_login_failed', $context );
 		}
 
@@ -1013,18 +1090,51 @@ class User_Logger extends Logger {
 	/**
 	 * Return more info about an logged event.
 	 *
+	 * Get action links for a log row.
+	 *
+	 * @param object $row Log row object.
+	 * @return array Array of action link arrays.
+	 */
+	public function get_action_links( $row ) {
+		$context     = $row->context;
+		$message_key = $context['_message_key'] ?? '';
+
+		if ( $message_key === 'user_updated_profile' ) {
+			$user_id = isset( $context['edited_user_id'] ) ? (int) $context['edited_user_id'] : 0;
+		} elseif ( $message_key === 'user_created' ) {
+			$user_id = isset( $context['created_user_id'] ) ? (int) $context['created_user_id'] : 0;
+		} else {
+			return [];
+		}
+
+		if ( ! $user_id || ! get_userdata( $user_id ) ) {
+			return [];
+		}
+
+		if ( ! current_user_can( 'edit_user', $user_id ) ) {
+			return [];
+		}
+
+		return [
+			[
+				'url'    => get_edit_user_link( $user_id ),
+				'label'  => __( 'Edit user', 'simple-history' ),
+				'action' => 'edit',
+			],
+		];
+	}
+
+	/**
 	 * @param object $row Log row.
-	 * @return string
+	 * @return Event_Details_Group|string
 	 */
 	public function get_log_row_details_output( $row ) {
 		$context     = $row->context;
 		$message_key = $context['_message_key'];
 
-		$out               = '';
-		$diff_table_output = '';
+		$group = new Event_Details_Group();
 
 		if ( $message_key === 'user_updated_profile' ) {
-			// Find all user_prev_ and user_new_ values and show them.
 			$arr_user_keys_to_show_diff_for = array(
 				'rich_editing'         => array(
 					'title'       => _x( 'Visual editor', 'User logger', 'simple-history' ),
@@ -1085,7 +1195,6 @@ class User_Logger extends Logger {
 			require_once ABSPATH . 'wp-admin/includes/translation-install.php';
 			$translations = wp_get_available_translations();
 
-			// English (United States) is not included in translations_array, add manually.
 			if ( ! isset( $translations['en_US'] ) ) {
 				$translations['en_US'] = array(
 					'language'     => 'en_US',
@@ -1101,152 +1210,88 @@ class User_Logger extends Logger {
 				$user_old_value = $context[ "user_prev_{$key}" ];
 				$user_new_value = $context[ "user_new_{$key}" ];
 
+				// Transform locale codes to display names.
 				if ( $key === 'locale' ) {
 					if ( isset( $translations[ $user_old_value ] ) ) {
-						$language_english_name = $translations[ $user_old_value ]['english_name'];
-						$user_old_value        = "{$language_english_name} ({$user_old_value})";
+						$user_old_value = "{$translations[ $user_old_value ]['english_name']} ({$user_old_value})";
 					} elseif ( $user_old_value === 'SITE_DEFAULT' ) {
 						$user_old_value = __( 'Site Default', 'simple-history' );
 					}
 
 					if ( isset( $translations[ $user_new_value ] ) ) {
-						$language_english_name = $translations[ $user_new_value ]['english_name'];
-						$user_new_value        = "{$language_english_name} ({$user_new_value})";
+						$user_new_value = "{$translations[ $user_new_value ]['english_name']} ({$user_new_value})";
 					} elseif ( $user_new_value === 'SITE_DEFAULT' ) {
 						$user_new_value = __( 'Site Default', 'simple-history' );
 					}
 				}
 
-				// Change naming for checkbox items from "true" or "false" to
-				// something more user friendly "Checked" and "Unchecked".
+				// Transform checkbox values to user-friendly labels.
 				if ( isset( $val['type'] ) && $val['type'] === 'checkbox' ) {
 					$user_old_value = $user_old_value === 'true' ? $val['value_true'] : $val['value_false'];
 					$user_new_value = $user_new_value === 'true' ? $val['value_true'] : $val['value_false'];
 				}
 
-				$diff_table_output .= sprintf(
-					'<tr>
-						<td>%1$s</td>
-						<td>%2$s</td>
-					</tr>',
-					$val['title'],
-					sprintf(
-						'<ins class="SimpleHistoryLogitem__keyValueTable__addedThing">%1$s</ins> <del class="SimpleHistoryLogitem__keyValueTable__removedThing">%2$s</del>',
-						esc_html( $user_new_value ), // 1
-						esc_html( $user_old_value ) // 2
-					)
+				$group->add_item(
+					( new Event_Details_Item( null, $val['title'] ) )
+						->set_values( $user_new_value, $user_old_value )
 				);
 			}
 
-			// Check if password was changed.
+			// Password changed.
 			if ( isset( $context['edited_user_password_changed'] ) ) {
-				$diff_table_output .= sprintf(
-					'<tr>
-                        <td>%1$s</td>
-                        <td>%2$s</td>
-                    </tr>',
-					_x( 'Password', 'User logger', 'simple-history' ),
-					_x( 'Changed', 'User logger', 'simple-history' )
+				$group->add_item(
+					( new Event_Details_Item( null, _x( 'Password', 'User logger', 'simple-history' ) ) )
+						->set_new_value( _x( 'Changed', 'User logger', 'simple-history' ) )
 				);
 			}
 		} elseif ( $message_key === 'user_created' ) {
-			// Show fields for created users.
-			$arr_user_keys_to_show_diff_for = array(
-				'created_user_role'       => array(
-					'title' => _x( 'Role', 'User logger', 'simple-history' ),
-				),
-				'created_user_first_name' => array(
-					'title' => _x( 'First name', 'User logger', 'simple-history' ),
-				),
-				'created_user_last_name'  => array(
-					'title' => _x( 'Last name', 'User logger', 'simple-history' ),
-				),
-				'created_user_url'        => array(
-					'title' => _x( 'Website', 'User logger', 'simple-history' ),
-				),
-				'send_user_notification'  => array(
-					'title' => _x( 'Send notification', 'User logger', 'simple-history' ),
-				),
+			$arr_user_keys_to_show = array(
+				'created_user_role'       => _x( 'Role', 'User logger', 'simple-history' ),
+				'created_user_first_name' => _x( 'First name', 'User logger', 'simple-history' ),
+				'created_user_last_name'  => _x( 'Last name', 'User logger', 'simple-history' ),
+				'created_user_url'        => _x( 'Website', 'User logger', 'simple-history' ),
+				'send_user_notification'  => _x( 'Send notification', 'User logger', 'simple-history' ),
 			);
 
-			foreach ( $arr_user_keys_to_show_diff_for as $key => $val ) {
+			foreach ( $arr_user_keys_to_show as $key => $title ) {
 				if ( ! isset( $context[ $key ] ) || ! trim( $context[ $key ] ) ) {
 					continue;
 				}
 
-				if ( $key === 'send_user_notification' ) {
-					if ( (int) $context[ $key ] === 1 ) {
-						// The checkbox for notification was checked.
-						$sent_status = _x(
-							'Checked',
-							'User logger',
-							'simple-history'
-						);
-					} else {
-						$sent_status = '';
-					}
+				$value = $context[ $key ];
 
-					if ( $sent_status !== '' ) {
-						$diff_table_output .= sprintf(
-							'<tr>
-								<td>%1$s</td>
-								<td>%2$s</td>
-							</tr>',
-							$val['title'],
-							sprintf(
-								'<ins class="SimpleHistoryLogitem__keyValueTable__addedThing">%1$s</ins>',
-								esc_html( $sent_status ) // 1
-							)
-						);
+				if ( $key === 'send_user_notification' ) {
+					if ( (int) $value !== 1 ) {
+						continue;
 					}
-				} else {
-					$diff_table_output .= sprintf(
-						'<tr>
-							<td>%1$s</td>
-							<td>%2$s</td>
-						</tr>',
-						$val['title'],
-						sprintf(
-							'<ins class="SimpleHistoryLogitem__keyValueTable__addedThing">%1$s</ins>',
-							esc_html( $context[ $key ] ) // 1
-						)
-					);
+					$value = _x( 'Checked', 'User logger', 'simple-history' );
 				}
+
+				$group->add_item(
+					( new Event_Details_Item( null, $title ) )
+						->set_new_value( $value )
+				);
 			}
 		}
 
 		// Common for both modified and added users.
 		if ( isset( $context['user_added_roles'] ) ) {
-			$diff_table_output .= sprintf(
-				'
-					<tr>
-						<td>%1$s</td>
-						<td>%2$s</td>
-					</tr>
-				',
-				__( 'Role added', 'simple-history' ),
-				esc_html( $context['user_added_roles'] )
+			$group->add_item(
+				( new Event_Details_Item( 'user_added_roles', __( 'Role added', 'simple-history' ) ) )
 			);
 		}
 
 		if ( isset( $context['user_removed_roles'] ) ) {
-			$diff_table_output .= sprintf(
-				'
-					<tr>
-						<td>%1$s</td>
-						<td>%2$s</td>
-					</tr>
-				',
-				__( 'Role removed', 'simple-history' ),
-				esc_html( $context['user_removed_roles'] )
+			$group->add_item(
+				( new Event_Details_Item( 'user_removed_roles', __( 'Role removed', 'simple-history' ) ) )
 			);
 		}
 
-		if ( $diff_table_output !== '' ) {
-			$out .= '<table class="SimpleHistoryLogitem__keyValueTable">' . $diff_table_output . '</table>';
+		if ( empty( $group->items ) ) {
+			return '';
 		}
 
-		return $out;
+		return $group;
 	}
 
 	/**

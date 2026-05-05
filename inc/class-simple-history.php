@@ -146,6 +146,7 @@ class Simple_History {
 			Services\AddOns_Licences::class,
 			Services\Admin_Page_Premium_Promo::class,
 			Services\Admin_Pages::class,
+			Services\AI_Initiator_Detector::class,
 			Services\Alerts_Settings_Page_Teaser::class,
 			Services\Auto_Backfill_Service::class,
 			Services\Channels_Service::class,
@@ -167,6 +168,8 @@ class Simple_History {
 			Services\Notification_Bar::class,
 			Services\Plugin_List_Info::class,
 			Services\Plugin_List_Link::class,
+			Services\Post_History_Column::class,
+			Services\Post_Row_Actions::class,
 			Services\REST_API::class,
 			Services\Review_Reminder_Service::class,
 			Services\Scripts_And_Templates::class,
@@ -175,7 +178,7 @@ class Simple_History {
 			Services\Setup_Pause_Resume_Actions::class,
 			Services\Setup_Purge_DB_Cron::class,
 			Services\Setup_Settings_Page::class,
-			Services\Sidebar_Tips_Service::class,
+			Services\Tips_Service::class,
 			Services\Simple_History_Updates::class,
 			Services\Stats_Service::class,
 			Services\Status_Box_Service::class,
@@ -959,6 +962,21 @@ class Simple_History {
 		}
 
 		$action_links = $logger->get_action_links( $row );
+
+		// Append a "Show details" link when the logger flags the event as
+		// having additional context worth inspecting in the modal. The
+		// logger returns the label so it can name the actual payload
+		// ("Show error message", etc.) rather than a generic phrase. The
+		// URL fragment is picked up by EventsModalIfFragment.jsx.
+		$more_details_label = $logger->event_has_more_details( $row );
+		if ( is_string( $more_details_label ) && $more_details_label !== '' ) {
+			$action_links[] = array(
+				'url'         => '#simple-history/event/' . (int) $row->id,
+				'label'       => $more_details_label,
+				'action'      => 'details',
+				'description' => __( 'Opens the event details with the full context.', 'simple-history' ),
+			);
+		}
 
 		/**
 		 * Filter the action links for a log row.

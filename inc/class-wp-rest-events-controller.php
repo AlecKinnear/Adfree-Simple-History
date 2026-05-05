@@ -196,7 +196,7 @@ class WP_REST_Events_Controller extends WP_REST_Controller {
 				[
 					'methods'             => WP_REST_Server::CREATABLE,
 					'callback'            => [ $this, 'react_to_event' ],
-					'permission_callback' => [ $this, 'get_items_permissions_check' ],
+					'permission_callback' => [ $this, 'get_item_permissions_check' ],
 				],
 			],
 		);
@@ -216,7 +216,7 @@ class WP_REST_Events_Controller extends WP_REST_Controller {
 				[
 					'methods'             => WP_REST_Server::CREATABLE,
 					'callback'            => [ $this, 'unreact_to_event' ],
-					'permission_callback' => [ $this, 'get_items_permissions_check' ],
+					'permission_callback' => [ $this, 'get_item_permissions_check' ],
 				],
 			],
 		);
@@ -546,6 +546,12 @@ class WP_REST_Events_Controller extends WP_REST_Controller {
 			'sanitize_callback' => 'sanitize_text_field',
 		);
 
+		$query_params['ai_only'] = array(
+			'description' => __( 'Limit result set to events triggered via an AI agent (Claude Code, ChatGPT, MCP clients, etc.).', 'simple-history' ),
+			'type'        => 'boolean',
+			'default'     => false,
+		);
+
 		$query_params['ungrouped'] = array(
 			'description' => __( 'Return ungrouped events without occasions grouping.', 'simple-history' ),
 			'type'        => 'boolean',
@@ -722,6 +728,21 @@ class WP_REST_Events_Controller extends WP_REST_Controller {
 					'description' => __( 'The context of the event.', 'simple-history' ),
 					'type'        => 'object',
 				),
+				'ai_origin'                  => array(
+					'description' => __( 'AI agent origin information when the event was triggered by an AI tool.', 'simple-history' ),
+					'type'        => array( 'object', 'null' ),
+					'properties'  => array(
+						'agent_name'   => array(
+							'type' => 'string',
+						),
+						'detected_via' => array(
+							'type' => 'string',
+						),
+						'application'  => array(
+							'type' => 'string',
+						),
+					),
+				),
 				'permalink'                  => array(
 					'description' => __( 'The permalink of the event.', 'simple-history' ),
 					'type'        => 'string',
@@ -748,14 +769,17 @@ class WP_REST_Events_Controller extends WP_REST_Controller {
 					'items'       => array(
 						'type'       => 'object',
 						'properties' => array(
-							'url'    => array(
+							'url'         => array(
 								'type'   => 'string',
 								'format' => 'uri',
 							),
-							'label'  => array(
+							'label'       => array(
 								'type' => 'string',
 							),
-							'action' => array(
+							'action'      => array(
+								'type' => 'string',
+							),
+							'description' => array(
 								'type' => 'string',
 							),
 						),
@@ -845,6 +869,7 @@ class WP_REST_Events_Controller extends WP_REST_Controller {
 			'ip_address'              => 'ip_address',
 			'context_filters'         => 'context_filters',
 			'metadata_search'         => 'metadata_search',
+			'ai_only'                 => 'ai_only',
 			'ungrouped'               => 'ungrouped',
 			'skip_count_query'        => 'skip_count_query',
 		);
@@ -936,6 +961,7 @@ class WP_REST_Events_Controller extends WP_REST_Controller {
 			'ip_address'              => 'ip_address',
 			'context_filters'         => 'context_filters',
 			'metadata_search'         => 'metadata_search',
+			'ai_only'                 => 'ai_only',
 			'ungrouped'               => 'ungrouped',
 			'skip_count_query'        => 'skip_count_query',
 			// Surrounding events parameters.
@@ -1210,6 +1236,20 @@ class WP_REST_Events_Controller extends WP_REST_Controller {
 			}
 
 			$data['reactions'] = $formatted;
+		}
+
+		if ( rest_is_field_included( 'ai_origin', $fields ) ) {
+			$ai_agent_key = \Simple_History\Services\AI_Initiator_Detector::CONTEXT_KEY_AGENT;
+
+			if ( isset( $context[ $ai_agent_key ] ) ) {
+				$data['ai_origin'] = [
+					'agent_name'   => (string) $context[ $ai_agent_key ],
+					'detected_via' => (string) ( $context[ \Simple_History\Services\AI_Initiator_Detector::CONTEXT_KEY_DETECTED_VIA ] ?? '' ),
+					'application'  => (string) ( $context[ \Simple_History\Services\AI_Initiator_Detector::CONTEXT_KEY_APPLICATION ] ?? '' ),
+				];
+			} else {
+				$data['ai_origin'] = null;
+			}
 		}
 
 		if ( rest_is_field_included( 'context', $fields ) ) {

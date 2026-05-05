@@ -24,6 +24,7 @@ export const EVENT_FIELDS = [
 	'initiator_data',
 	'ip_addresses',
 	'via',
+	'ai_origin',
 	'permalink',
 	'sticky',
 	'sticky_appended',
@@ -59,6 +60,7 @@ export function generateAPIQueryParams( props ) {
 		enteredIPAddress,
 		selectedContextFilters,
 		enteredMetadataSearch,
+		showAIOnly,
 		enteredSearchText,
 		selectedDateOption,
 		selectedCustomDateFrom,
@@ -215,6 +217,11 @@ export function generateAPIQueryParams( props ) {
 	// Add metadata search (plain text search across all context values).
 	if ( enteredMetadataSearch && enteredMetadataSearch.trim().length > 0 ) {
 		eventsQueryParams.metadata_search = enteredMetadataSearch.trim();
+	}
+
+	// Show only events that have an AI agent attribution.
+	if ( showAIOnly ) {
+		eventsQueryParams.ai_only = true;
 	}
 
 	// Add exclusion/negative filters - hide events matching these criteria.

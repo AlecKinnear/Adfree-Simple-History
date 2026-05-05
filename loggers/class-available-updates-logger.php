@@ -2,6 +2,11 @@
 
 namespace Simple_History\Loggers;
 
+use Simple_History\Event_Details\Event_Details_Container;
+use Simple_History\Event_Details\Event_Details_Group;
+use Simple_History\Event_Details\Event_Details_Group_Inline_Formatter;
+use Simple_History\Event_Details\Event_Details_Group_Table_Formatter;
+use Simple_History\Event_Details\Event_Details_Item;
 use Simple_History\Log_Initiators;
 
 /**
@@ -173,6 +178,7 @@ class Available_Updates_Logger extends Logger {
 
 			$context = array(
 				'plugin_name'            => $plugin_info['Name'] ?? '',
+				'plugin_slug'            => $data->slug ?? '',
 				'plugin_current_version' => $plugin_info['Version'] ?? '',
 				'plugin_new_version'     => $plugin_new_version,
 				'_initiator'             => Log_Initiators::WORDPRESS,
@@ -254,17 +260,15 @@ class Available_Updates_Logger extends Logger {
 	 * Append prev and current version of update object as details in the output
 	 *
 	 * @param object $row Log row.
-	 * @return string HTML output with version details.
+	 * @return Event_Details_Group|Event_Details_Container|string
 	 */
 	public function get_log_row_details_output( $row ) {
-
-		$output = '';
-
-		$current_version     = null;
-		$new_version         = null;
 		$context_message_key = $row->context_message_key ?? null;
+		$context             = $row->context ?? array();
 
-		$context = $row->context ?? array();
+		$current_version = null;
+		$new_version     = null;
+		$groups          = [];
 
 		switch ( $context_message_key ) {
 			case 'core_update_available':
@@ -276,26 +280,35 @@ class Available_Updates_Logger extends Logger {
 				$current_version = $context['plugin_current_version'] ?? null;
 				$new_version     = $context['plugin_new_version'] ?? null;
 
-				// Check for forced security update.
+				// Security auto-update notice.
 				if ( ! empty( $context['plugin_autoupdate'] ) ) {
-					$output .= '<p>';
-					$output .= '<strong>' . esc_html_x( 'Security auto-update', 'Available updates logger: forced update indicator', 'simple-history' ) . '</strong>';
-					$output .= ' – ';
-					$output .= esc_html__( 'This update will be installed automatically by WordPress.', 'simple-history' );
-					$output .= '</p>';
+					$security_group = ( new Event_Details_Group() )
+						->set_formatter( new Event_Details_Group_Table_Formatter() )
+						->add_item(
+							( new Event_Details_Item(
+								null,
+								_x( 'Security auto-update', 'Available updates logger: forced update indicator', 'simple-history' )
+							) )->set_new_value(
+								__( 'This update will be installed automatically by WordPress.', 'simple-history' )
+							)
+						);
+					$groups[] = $security_group;
 				}
 
-				// Show upgrade notice if available.
+				// Upgrade notice.
 				if ( ! empty( $context['plugin_upgrade_notice'] ) ) {
 					$upgrade_notice = wp_strip_all_tags( $context['plugin_upgrade_notice'] );
 					$upgrade_notice = wp_trim_words( $upgrade_notice, 30, '…' );
 
-					$output .= '<table class="SimpleHistoryLogitem__keyValueTable">';
-					$output .= '<tr>';
-					$output .= '<td>' . esc_html_x( 'Update notice', 'Available updates logger: update notice label', 'simple-history' ) . '</td>';
-					$output .= '<td>' . esc_html( $upgrade_notice ) . '</td>';
-					$output .= '</tr>';
-					$output .= '</table>';
+					$notice_group = ( new Event_Details_Group() )
+						->set_formatter( new Event_Details_Group_Table_Formatter() )
+						->add_item(
+							( new Event_Details_Item(
+								null,
+								_x( 'Update notice', 'Available updates logger: update notice label', 'simple-history' )
+							) )->set_new_value( $upgrade_notice )
+						);
+					$groups[] = $notice_group;
 				}
 				break;
 
@@ -305,21 +318,24 @@ class Available_Updates_Logger extends Logger {
 				break;
 		}
 
+		// Version info as inline group.
 		if ( $current_version && $new_version ) {
-			$output .= '<p>';
-			$output .= '<span class="SimpleHistoryLogitem__inlineDivided">';
-			$output .= '<em>' . __( 'Available version', 'simple-history' ) . '</em> ' . esc_html( $new_version );
-			$output .= '</span> ';
-
-			$output .= '<span class="SimpleHistoryLogitem__inlineDivided">';
-			$output .= '<em>' . __( 'Installed version', 'simple-history' ) . '</em> ' . esc_html( $current_version );
-			$output .= '</span>';
-
-			$output .= '</p>';
-
+			$version_group = ( new Event_Details_Group() )
+				->set_formatter( new Event_Details_Group_Inline_Formatter() )
+				->add_items( [
+					( new Event_Details_Item( null, __( 'Available version', 'simple-history' ) ) )
+						->set_new_value( $new_version ),
+					( new Event_Details_Item( null, __( 'Installed version', 'simple-history' ) ) )
+						->set_new_value( $current_version ),
+				] );
+			$groups[] = $version_group;
 		}
 
-		return $output;
+		if ( empty( $groups ) ) {
+			return '';
+		}
+
+		return Event_Details_Container::create_from( $groups );
 	}
 
 	/**
@@ -335,12 +351,35 @@ class Available_Updates_Logger extends Logger {
 			return [];
 		}
 
-		return [
+		$action_links = [
 			[
 				'url'    => admin_url( 'update-core.php' ),
 				'label'  => __( 'View all updates', 'simple-history' ),
 				'action' => 'view',
 			],
 		];
+
+		// Add "View changelog" for plugin updates with a known slug.
+		$context      = $row->context;
+		$message_key  = $context['_message_key'] ?? '';
+		$plugin_slug  = $context['plugin_slug'] ?? '';
+
+		if ( $message_key === 'plugin_update_available' && $plugin_slug ) {
+			$url = is_multisite()
+				? network_admin_url( "plugin-install.php?tab=plugin-information&plugin={$plugin_slug}&section=changelog&TB_iframe=true&width=772&height=550" )
+				: admin_url( "plugin-install.php?tab=plugin-information&plugin={$plugin_slug}&section=changelog&TB_iframe=true&width=772&height=550" );
+
+			// Prepend so changelog appears before "View all updates".
+			array_unshift(
+				$action_links,
+				[
+					'url'    => $url,
+					'label'  => _x( 'View changelog', 'Available updates logger: changelog link', 'simple-history' ),
+					'action' => 'edit',
+				]
+			);
+		}
+
+		return $action_links;
 	}
 }
