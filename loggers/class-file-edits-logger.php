@@ -75,9 +75,12 @@ class File_Edits_Logger extends Logger {
 		// phpcs:ignore WordPress.Security.NonceVerification.Missing, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
 		$theme = isset( $_POST['theme'] ) ? wp_unslash( $_POST['theme'] ) : '';
 
-		if ( $plugin ) {
+		// Gate on the same capabilities WP core's handler enforces, so this
+		// priority-0 hook can't be used by lower-privileged users to trigger
+		// file reads before core's own check runs.
+		if ( $plugin && current_user_can( 'edit_plugins' ) && 0 === validate_file( $plugin ) ) {
 			$this->capture_plugin_file_edit( $file, $plugin, $new_contents );
-		} elseif ( $theme ) {
+		} elseif ( $theme && current_user_can( 'edit_themes' ) && 0 === validate_file( $theme ) ) {
 			$this->capture_theme_file_edit( $file, $theme, $new_contents );
 		}
 	}
