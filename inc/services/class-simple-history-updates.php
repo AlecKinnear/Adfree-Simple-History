@@ -22,6 +22,7 @@ class Simple_History_Updates extends Service {
 		add_filter( 'simple_history/pluginlogger/plugin_updated_details/simple-history/5.23.0', [ $this, 'on_plugin_updated_details_5_23_0' ] );
 		add_filter( 'simple_history/pluginlogger/plugin_updated_details/simple-history/5.24.0', [ $this, 'on_plugin_updated_details_5_24_0' ] );
 		add_filter( 'simple_history/pluginlogger/plugin_updated_details/simple-history/5.25.0', [ $this, 'on_plugin_updated_details_5_25_0' ] );
+		add_filter( 'simple_history/pluginlogger/plugin_updated_details/simple-history/5.27.0', [ $this, 'on_plugin_updated_details_5_27_0' ] );
 
 
 		// To test the output of a specific version, you can enable it for any just recently updated plugin that is visible in the GUI.
@@ -245,6 +246,26 @@ class Simple_History_Updates extends Service {
 		];
 
 		$release_link = 'https://simple-history.com/2026/simple-history-5-25-0-released/';
+
+		return $this->format_new_features_list( $title, $new_features, $release_link );
+	}
+
+	/**
+	 * Update details for version 5.27.0.
+	 *
+	 * @param string $extra_details Extra details.
+	 * @return string
+	 */
+	public function on_plugin_updated_details_5_27_0( $extra_details ) {
+		$title = __( 'Highlights in this version', 'simple-history' );
+
+		$new_features = [
+			__( 'AI agent attribution – see when an event was triggered through Claude Code, ChatGPT, or other AI tools, with the agent name shown next to the user', 'simple-history' ),
+			__( 'Action links front and center – jump straight from the log to edit a media item, plugin, user, or menu, or open the error message for a failed plugin install', 'simple-history' ),
+			__( 'Copy as JSON – copy the full event payload, including all context data, for scripting and debugging', 'simple-history' ),
+		];
+
+		$release_link = 'https://simple-history.com/2026/simple-history-5-27-0-released/';
 
 		return $this->format_new_features_list( $title, $new_features, $release_link );
 	}
