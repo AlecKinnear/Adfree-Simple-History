@@ -54,6 +54,11 @@ class WP_CLI_Info_Command extends WP_CLI_Command {
 			WP_CLI::log( '  Learn more: https://simple-history.com/premium/' );
 		}
 
+		if ( Helpers::experimental_features_is_enabled() ) {
+			WP_CLI::log( '' );
+			WP_CLI::log( WP_CLI::colorize( '%YExperimental features:%n enabled' ) );
+		}
+
 		WP_CLI::log( '' );
 		WP_CLI::log( 'Useful subcommands:' );
 		WP_CLI::log( '  wp simple-history list           List events' );

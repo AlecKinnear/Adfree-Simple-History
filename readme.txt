@@ -251,6 +251,12 @@ For more information, see our support page [GDPR and Privacy: How Your Data is S
 
 🧪 **Experimental** entries are gated behind the experimental features setting (Settings → Simple History → Experimental). Enable it to try them, then share feedback so we know what to ship for everyone.
 
+### Unreleased
+
+**Changed**
+
+-   `wp simple-history info` now shows "Experimental features: enabled" when experimental features are active. The line is omitted when they are off, so it only surfaces when relevant.
+
 ### 5.27.0 (May 2026)
 
 🤖 This release adds AI agent attribution to log events, so you can see when an action was triggered through Claude Code, ChatGPT, or other AI tools. Also, Action links are now front-and-center for media, plugins, users, menus, and failed plugin installs.
