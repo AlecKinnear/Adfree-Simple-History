@@ -369,33 +369,59 @@ class Connectors_Logger extends Logger {
 		$group = new Event_Details_Group();
 		$group->set_formatter( new Event_Details_Group_Table_Formatter() );
 
-		if ( ! empty( $context['connector_setting_name'] ) ) {
-			$item = new Event_Details_Item( null, __( 'Setting name', 'simple-history' ) );
-			$item->set_new_value( $context['connector_setting_name'] );
-			$group->add_item( $item );
-		}
-
 		if ( ! empty( $context['connector_type'] ) ) {
 			$item = new Event_Details_Item( null, __( 'Connector type', 'simple-history' ) );
-			$item->set_new_value( $context['connector_type'] );
+			$item->set_new_value( $this->humanize_connector_type( $context['connector_type'] ) );
 			$group->add_item( $item );
 		}
 
 		$prev_display = $this->describe_stored_secret_for_display( $context, 'prev' );
-		if ( $prev_display !== '' ) {
+		$new_display  = $this->describe_stored_secret_for_display( $context, 'new' );
+
+		// Context-aware labels: on an add (no prev), the new value is just
+		// "API key" — there's nothing to be "new" relative to. Update events
+		// keep the prev/new pair for clarity.
+		$has_prev      = $prev_display !== '';
+		$new_key_label = $has_prev
+			? __( 'New API key', 'simple-history' )
+			: __( 'API key', 'simple-history' );
+
+		if ( $has_prev ) {
 			$item = new Event_Details_Item( null, __( 'Previous API key', 'simple-history' ) );
 			$item->set_new_value( $prev_display );
 			$group->add_item( $item );
 		}
 
-		$new_display = $this->describe_stored_secret_for_display( $context, 'new' );
 		if ( $new_display !== '' ) {
-			$item = new Event_Details_Item( null, __( 'New API key', 'simple-history' ) );
+			$item = new Event_Details_Item( null, $new_key_label );
 			$item->set_new_value( $new_display );
 			$group->add_item( $item );
 		}
 
 		return $group;
+	}
+
+	/**
+	 * Convert a connector type slug into a human-readable label.
+	 *
+	 * WP 7.0 ships `ai_provider` and `spam_filtering`; third-party connectors
+	 * may add their own. Falls back to a generic snake_case → "Sentence case"
+	 * transform so any future type renders sensibly without a code change.
+	 *
+	 * @param string $type Stored connector type slug.
+	 * @return string
+	 */
+	protected function humanize_connector_type( $type ) {
+		$known = array(
+			'ai_provider'    => __( 'AI provider', 'simple-history' ),
+			'spam_filtering' => __( 'Spam filtering', 'simple-history' ),
+		);
+
+		if ( isset( $known[ $type ] ) ) {
+			return $known[ $type ];
+		}
+
+		return ucfirst( str_replace( '_', ' ', $type ) );
 	}
 
 	/**

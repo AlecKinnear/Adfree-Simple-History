@@ -310,8 +310,11 @@ class ConnectorsLoggerTest extends \Codeception\TestCase\WPTestCase {
 	/**
 	 * The event details renderer should produce a bullet-prefixed credential
 	 * display (`••••7890`) from a stored last_4 suffix.
+	 *
+	 * On an add event (no prev), the label should be "API key", not "New API
+	 * key" — there's nothing to be "new" relative to.
 	 */
-	public function test_event_details_renders_last_4_with_bullets() {
+	public function test_event_details_renders_last_4_with_bullets_on_add() {
 		$row          = new stdClass();
 		$row->context = array(
 			'connector_setting_name' => 'connectors_ai_anthropic_api_key',
@@ -321,11 +324,45 @@ class ConnectorsLoggerTest extends \Codeception\TestCase\WPTestCase {
 
 		$output = $this->render_event_details( $row );
 
-		// The rendered HTML must contain the bullet-formatted credential and
-		// not the raw "7890" fragment standing alone.
 		$this->assertStringContainsString( "\u{2022}\u{2022}\u{2022}\u{2022}", $output );
 		$this->assertStringContainsString( '7890', $output );
-		$this->assertStringContainsString( 'New API key', $output );
+		// Context-aware label: just "API key" on add events.
+		$this->assertStringContainsString( 'API key', $output );
+		$this->assertStringNotContainsString( 'New API key', $output );
+	}
+
+	/**
+	 * Connector type slugs (e.g. `ai_provider`) must be humanized at render
+	 * time — admins shouldn't be confronted with raw internal slugs.
+	 */
+	public function test_event_details_humanizes_connector_type() {
+		$row          = new stdClass();
+		$row->context = array(
+			'connector_type' => 'ai_provider',
+		);
+
+		$output = $this->render_event_details( $row );
+
+		$this->assertStringContainsString( 'AI provider', $output );
+		$this->assertStringNotContainsString( 'ai_provider', $output );
+	}
+
+	/**
+	 * `Setting name` is internal plumbing (wp_options key). It must still be
+	 * stored in context for REST/export consumers, but should NOT appear in
+	 * the visible event details by default.
+	 */
+	public function test_event_details_omits_setting_name_row() {
+		$row          = new stdClass();
+		$row->context = array(
+			'connector_setting_name' => 'connectors_ai_anthropic_api_key',
+			'api_key_new_last_4'     => '7890',
+		);
+
+		$output = $this->render_event_details( $row );
+
+		$this->assertStringNotContainsString( 'connectors_ai_anthropic_api_key', $output );
+		$this->assertStringNotContainsString( 'Setting name', $output );
 	}
 
 	/**
