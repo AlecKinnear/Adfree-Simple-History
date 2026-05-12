@@ -634,6 +634,24 @@ class Helpers {
 	}
 
 	/**
+	 * Convert a snake_case slug to a "Sentence case" label.
+	 *
+	 * Useful for rendering stored type/category slugs (e.g. `ai_provider`,
+	 * `spam_filtering`) as something readable when no explicit translation
+	 * exists. Capitalises only the first character; the rest stays lowercase
+	 * so multi-word slugs read naturally ("Spam filtering", not
+	 * "Spam Filtering").
+	 *
+	 * @since 5.28.0
+	 *
+	 * @param string $input snake_case identifier.
+	 * @return string
+	 */
+	public static function snake_case_to_sentence_case( $input ) {
+		return ucfirst( str_replace( '_', ' ', (string) $input ) );
+	}
+
+	/**
 	 * Return a low-information identifier for a secret value, safe to log.
 	 *
 	 * Returns the last `$visible_suffix` characters of `$secret`, suitable for

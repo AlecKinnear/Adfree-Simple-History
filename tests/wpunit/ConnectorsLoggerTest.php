@@ -184,39 +184,25 @@ class ConnectorsLoggerTest extends \Codeception\TestCase\WPTestCase {
 	}
 
 	/**
-	 * Full delete flow: simulate the captured pre-value and run the deleted_option handler.
-	 * Regression test — earlier version used `delete_option_{$option}` which fires AFTER
-	 * the row is gone, so `get_option()` returned an empty default and we silently logged nothing.
+	 * Regression test for the delete-path bug: earlier code hooked
+	 * `delete_option_{$option}` (which fires AFTER the row is gone) and called
+	 * `get_option()` inside, so it always logged nothing. Now we route via
+	 * the global `delete_option`/`deleted_option` pair.
+	 *
+	 * Drives `handle_deleted_option` with an explicit pre-delete value via
+	 * its $old_value_override test seam, avoiding reflection into the stash.
 	 */
-	public function test_handle_deleted_option_logs_via_global_hook_pair() {
+	public function test_handle_deleted_option_logs_with_explicit_old_value() {
 		$setting_name = $this->fake_connector['authentication']['setting_name'];
 
-		$reflection                    = new ReflectionClass( Connectors_Logger::class );
-		$connectors_by_setting_prop    = $reflection->getProperty( 'connectors_by_setting' );
-		$pre_delete_values_prop        = $reflection->getProperty( 'pre_delete_values' );
-		$connectors_by_setting_prop->setAccessible( true );
-		$pre_delete_values_prop->setAccessible( true );
+		$this->seed_connectors_by_setting( $setting_name, 'anthropic', $this->fake_connector );
 
-		$connectors_by_setting_prop->setValue(
-			$this->logger,
-			array(
-				$setting_name => array(
-					'id'   => 'anthropic',
-					'data' => $this->fake_connector,
-				),
-			)
-		);
-		$pre_delete_values_prop->setValue( $this->logger, array( $setting_name => 'sk-ant-test-DELE' ) );
-
-		$this->logger->handle_deleted_option( $setting_name );
+		$this->logger->handle_deleted_option( $setting_name, 'sk-ant-test-DELE' );
 
 		$context = get_latest_context();
 		$this->assert_context_has( $context, '_message_key', 'connector_api_key_removed' );
 		$this->assert_context_has( $context, 'api_key_prev_last_4', 'DELE' );
 		$this->assert_context_does_not_contain_full_key( $context, 'sk-ant-test-DELE' );
-
-		// The stash entry should have been consumed.
-		$this->assertSame( array(), $pre_delete_values_prop->getValue( $this->logger ) );
 	}
 
 	/**
@@ -239,6 +225,8 @@ class ConnectorsLoggerTest extends \Codeception\TestCase\WPTestCase {
 		$prop->setAccessible( true );
 
 		$this->assertSame( array(), $prop->getValue( $logger ) );
+		$this->assertFalse( has_action( 'added_option', array( $logger, 'handle_added_option' ) ) );
+		$this->assertFalse( has_action( 'updated_option', array( $logger, 'handle_updated_option' ) ) );
 		$this->assertFalse( has_action( 'delete_option', array( $logger, 'capture_value_before_delete' ) ) );
 		$this->assertFalse( has_action( 'deleted_option', array( $logger, 'handle_deleted_option' ) ) );
 	}
@@ -246,10 +234,9 @@ class ConnectorsLoggerTest extends \Codeception\TestCase\WPTestCase {
 	/**
 	 * When the Connectors API is available, `register_connector_hooks()` should
 	 * populate `connectors_by_setting` from `wp_get_connectors()` and bind the
-	 * global delete hooks (whose binding is the only directly observable side
-	 * effect — the per-setting add/update closures aren't easy to enumerate).
+	 * four global option hooks.
 	 */
-	public function test_register_connector_hooks_binds_delete_hooks_when_connectors_exist() {
+	public function test_register_connector_hooks_binds_global_hooks_when_connectors_exist() {
 		if ( ! function_exists( 'wp_get_connectors' ) ) {
 			$this->markTestSkipped( 'Connectors API not available on this WordPress version.' );
 		}
@@ -267,6 +254,8 @@ class ConnectorsLoggerTest extends \Codeception\TestCase\WPTestCase {
 		$prop->setAccessible( true );
 
 		$this->assertNotEmpty( $prop->getValue( $logger ), 'connectors_by_setting should be populated' );
+		$this->assertNotFalse( has_action( 'added_option', array( $logger, 'handle_added_option' ) ) );
+		$this->assertNotFalse( has_action( 'updated_option', array( $logger, 'handle_updated_option' ) ) );
 		$this->assertNotFalse( has_action( 'delete_option', array( $logger, 'capture_value_before_delete' ) ) );
 		$this->assertNotFalse( has_action( 'deleted_option', array( $logger, 'handle_deleted_option' ) ) );
 	}
@@ -279,27 +268,14 @@ class ConnectorsLoggerTest extends \Codeception\TestCase\WPTestCase {
 	public function test_delete_option_on_connector_setting_logs_removal() {
 		$setting_name = $this->fake_connector['authentication']['setting_name'];
 
-		$reflection                 = new ReflectionClass( Connectors_Logger::class );
-		$connectors_by_setting_prop = $reflection->getProperty( 'connectors_by_setting' );
-		$connectors_by_setting_prop->setAccessible( true );
-		$connectors_by_setting_prop->setValue(
-			$this->logger,
-			array(
-				$setting_name => array(
-					'id'   => 'anthropic',
-					'data' => $this->fake_connector,
-				),
-			)
-		);
+		$this->seed_connectors_by_setting( $setting_name, 'anthropic', $this->fake_connector );
 
-		// Register the global delete hooks (mirrors what register_connector_hooks does).
 		remove_action( 'delete_option', array( $this->logger, 'capture_value_before_delete' ) );
 		remove_action( 'deleted_option', array( $this->logger, 'handle_deleted_option' ) );
 		add_action( 'delete_option', array( $this->logger, 'capture_value_before_delete' ) );
 		add_action( 'deleted_option', array( $this->logger, 'handle_deleted_option' ) );
 
 		add_option( $setting_name, 'sk-ant-real-DELL' );
-
 		delete_option( $setting_name );
 
 		$context = get_latest_context();
@@ -453,6 +429,30 @@ class ConnectorsLoggerTest extends \Codeception\TestCase\WPTestCase {
 		$group = $this->logger->get_log_row_details_output( $row );
 
 		return (string) $group->formatter->to_html( $group );
+	}
+
+	/**
+	 * Seed the logger's connector lookup map without re-running discovery.
+	 *
+	 * Reflection is required because `connectors_by_setting` is protected; this
+	 * helper centralises the access so individual tests stay readable.
+	 *
+	 * @param string $setting_name   The wp_options key.
+	 * @param string $connector_id   Connector identifier (e.g. "anthropic").
+	 * @param array  $connector_data Connector data shape from wp_get_connectors().
+	 */
+	private function seed_connectors_by_setting( string $setting_name, string $connector_id, array $connector_data ): void {
+		$prop = ( new ReflectionClass( Connectors_Logger::class ) )->getProperty( 'connectors_by_setting' );
+		$prop->setAccessible( true );
+		$prop->setValue(
+			$this->logger,
+			array(
+				$setting_name => array(
+					'id'   => $connector_id,
+					'data' => $connector_data,
+				),
+			)
+		);
 	}
 
 	/**

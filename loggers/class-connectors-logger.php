@@ -87,15 +87,15 @@ class Connectors_Logger extends Logger {
 	}
 
 	/**
-	 * Bind add/update/delete option hooks for each registered connector's API key.
+	 * Build the connectors-by-setting lookup, then bind the global option hooks.
 	 *
-	 * Add and update hooks are bound per-setting via the dynamic `add_option_*`
-	 * and `update_option_*` action names. Deletion needs two passes: the
-	 * `delete_option` action fires *before* the row is removed (so we can read
-	 * the pre-delete value), and `deleted_option` fires *after* a successful
-	 * delete (so we only log when the delete actually happened). Both are
-	 * registered once and dispatch by looking up the option name in
-	 * `$this->connectors_by_setting`.
+	 * All four hooks (`added_option`, `updated_option`, `delete_option`,
+	 * `deleted_option`) are global — they fire for every option write across
+	 * WordPress, and each callback short-circuits via the
+	 * `$connectors_by_setting` lookup when the option name isn't ours. That's
+	 * cheaper to reason about and matches the delete pattern, which has to be
+	 * global anyway because `delete_option_{$name}` fires *after* the DB row
+	 * is gone and we need a pre-delete read.
 	 */
 	public function register_connector_hooks() {
 		if ( ! function_exists( 'wp_get_connectors' ) ) {
@@ -121,32 +121,58 @@ class Connectors_Logger extends Logger {
 				'id'   => $connector_id,
 				'data' => $connector_data,
 			);
-
-			add_action(
-				"add_option_{$setting_name}",
-				function ( $option, $value ) use ( $connector_id, $connector_data ) {
-					$this->on_connector_option_added( $connector_id, $connector_data, $value );
-				},
-				10,
-				2
-			);
-
-			add_action(
-				"update_option_{$setting_name}",
-				function ( $old_value, $new_value ) use ( $connector_id, $connector_data ) {
-					$this->on_connector_option_updated( $connector_id, $connector_data, $old_value, $new_value );
-				},
-				10,
-				2
-			);
 		}
 
 		if ( empty( $this->connectors_by_setting ) ) {
 			return;
 		}
 
+		add_action( 'added_option', array( $this, 'handle_added_option' ), 10, 2 );
+		add_action( 'updated_option', array( $this, 'handle_updated_option' ), 10, 3 );
 		add_action( 'delete_option', array( $this, 'capture_value_before_delete' ) );
 		add_action( 'deleted_option', array( $this, 'handle_deleted_option' ) );
+	}
+
+	/**
+	 * Look up the connector behind an option name. Returns null when the
+	 * option isn't one we're tracking — callers use this as a short-circuit.
+	 *
+	 * @param string $option Option name.
+	 * @return array{id: string, data: array}|null
+	 */
+	protected function get_connector_for_option( $option ) {
+		return $this->connectors_by_setting[ $option ] ?? null;
+	}
+
+	/**
+	 * Global `added_option` dispatcher — fires for every add_option() call.
+	 *
+	 * @param string $option Option name.
+	 * @param mixed  $value  Stored value.
+	 */
+	public function handle_added_option( $option, $value ) {
+		$info = $this->get_connector_for_option( $option );
+		if ( $info === null ) {
+			return;
+		}
+
+		$this->on_connector_option_added( $info['id'], $info['data'], $value );
+	}
+
+	/**
+	 * Global `updated_option` dispatcher — fires for every update_option() call.
+	 *
+	 * @param string $option    Option name.
+	 * @param mixed  $old_value Previous value.
+	 * @param mixed  $new_value New value.
+	 */
+	public function handle_updated_option( $option, $old_value, $new_value ) {
+		$info = $this->get_connector_for_option( $option );
+		if ( $info === null ) {
+			return;
+		}
+
+		$this->on_connector_option_updated( $info['id'], $info['data'], $old_value, $new_value );
 	}
 
 	/**
@@ -159,7 +185,7 @@ class Connectors_Logger extends Logger {
 	 * @param string $option Option name about to be deleted.
 	 */
 	public function capture_value_before_delete( $option ) {
-		if ( ! isset( $this->connectors_by_setting[ $option ] ) ) {
+		if ( $this->get_connector_for_option( $option ) === null ) {
 			return;
 		}
 
@@ -167,23 +193,34 @@ class Connectors_Logger extends Logger {
 	}
 
 	/**
-	 * Log a connector option deletion using the value stashed in `capture_value_before_delete`.
+	 * Log a connector option deletion.
 	 *
 	 * Fired by the global `deleted_option` action, which only runs after a
-	 * successful `$wpdb->delete()` — so any log entry here corresponds to a real removal.
+	 * successful `$wpdb->delete()` — so any log entry here corresponds to a
+	 * real removal.
 	 *
-	 * @param string $option Option name that was deleted.
+	 * The pre-delete value is normally pulled from `$pre_delete_values`
+	 * (populated by `capture_value_before_delete`). Tests may pass
+	 * `$old_value_override` to drive the handler directly without staging
+	 * the stash via reflection.
+	 *
+	 * @param string      $option             Option name that was deleted.
+	 * @param string|null $old_value_override Test seam: explicit pre-delete value.
 	 */
-	public function handle_deleted_option( $option ) {
-		if ( ! isset( $this->connectors_by_setting[ $option ] ) ) {
+	public function handle_deleted_option( $option, $old_value_override = null ) {
+		$info = $this->get_connector_for_option( $option );
+		if ( $info === null ) {
 			return;
 		}
 
-		$old_value = $this->pre_delete_values[ $option ] ?? '';
-		unset( $this->pre_delete_values[ $option ] );
+		if ( $old_value_override !== null ) {
+			$old_value = $old_value_override;
+		} else {
+			$old_value = $this->pre_delete_values[ $option ] ?? '';
+			unset( $this->pre_delete_values[ $option ] );
+		}
 
-		$connector_info = $this->connectors_by_setting[ $option ];
-		$this->on_connector_option_deleted( $connector_info['id'], $connector_info['data'], $old_value );
+		$this->on_connector_option_deleted( $info['id'], $info['data'], $old_value );
 	}
 
 	/**
@@ -339,15 +376,33 @@ class Connectors_Logger extends Logger {
 	 * @return array<string, string>
 	 */
 	protected function build_secret_descriptor( $direction, $secret ) {
+		$keys   = $this->secret_context_keys( $direction );
 		$suffix = Helpers::mask_secret( $secret );
 
 		if ( $suffix !== null ) {
-			return array( "api_key_{$direction}_last_4" => $suffix );
+			return array( $keys['suffix'] => $suffix );
 		}
 
 		return array(
-			"api_key_{$direction}_was_short" => 'true',
-			"api_key_{$direction}_length"    => (string) strlen( $secret ),
+			$keys['was_short'] => 'true',
+			$keys['length']    => (string) strlen( $secret ),
+		);
+	}
+
+	/**
+	 * Single source of truth for the three context keys used by both
+	 * `build_secret_descriptor()` (writer) and
+	 * `describe_stored_secret_for_display()` (reader). A typo or schema
+	 * change in one without the other would silently break the round-trip.
+	 *
+	 * @param string $direction Either 'new' or 'prev'.
+	 * @return array{suffix: string, was_short: string, length: string}
+	 */
+	protected function secret_context_keys( $direction ) {
+		return array(
+			'suffix'    => "api_key_{$direction}_last_4",
+			'was_short' => "api_key_{$direction}_was_short",
+			'length'    => "api_key_{$direction}_length",
 		);
 	}
 
@@ -421,7 +476,7 @@ class Connectors_Logger extends Logger {
 			return $known[ $type ];
 		}
 
-		return ucfirst( str_replace( '_', ' ', $type ) );
+		return Helpers::snake_case_to_sentence_case( $type );
 	}
 
 	/**
@@ -436,16 +491,14 @@ class Connectors_Logger extends Logger {
 	 * @return string Empty string when nothing was stored for this direction.
 	 */
 	protected function describe_stored_secret_for_display( array $context, $direction ) {
-		$suffix_key    = "api_key_{$direction}_last_4";
-		$was_short_key = "api_key_{$direction}_was_short";
-		$length_key    = "api_key_{$direction}_length";
+		$keys = $this->secret_context_keys( $direction );
 
-		if ( isset( $context[ $suffix_key ] ) && $context[ $suffix_key ] !== '' ) {
-			return Helpers::format_masked_secret_for_display( $context[ $suffix_key ] );
+		if ( isset( $context[ $keys['suffix'] ] ) && $context[ $keys['suffix'] ] !== '' ) {
+			return Helpers::format_masked_secret_for_display( $context[ $keys['suffix'] ] );
 		}
 
-		if ( isset( $context[ $was_short_key ] ) && $context[ $was_short_key ] === 'true' ) {
-			$length = isset( $context[ $length_key ] ) ? (int) $context[ $length_key ] : 0;
+		if ( isset( $context[ $keys['was_short'] ] ) && $context[ $keys['was_short'] ] === 'true' ) {
+			$length = isset( $context[ $keys['length'] ] ) ? (int) $context[ $keys['length'] ] : 0;
 
 			return sprintf(
 				/* translators: %d: character count of a value that was too short to mask. */

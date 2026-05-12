@@ -290,4 +290,14 @@ class HelpersTest extends \Codeception\TestCase\WPTestCase {
 		$this->assertEquals( '7890', Helpers::format_masked_secret_for_display( '7890', 0 ) );
 		$this->assertEquals( '7890', Helpers::format_masked_secret_for_display( '7890', -5 ) );
 	}
+
+	function test_snake_case_to_sentence_case_capitalizes_first_word_only() {
+		$this->assertEquals( 'Spam filtering', Helpers::snake_case_to_sentence_case( 'spam_filtering' ) );
+		$this->assertEquals( 'A long multi word slug', Helpers::snake_case_to_sentence_case( 'a_long_multi_word_slug' ) );
+	}
+
+	function test_snake_case_to_sentence_case_handles_already_clean_input() {
+		$this->assertEquals( 'Hello', Helpers::snake_case_to_sentence_case( 'hello' ) );
+		$this->assertEquals( '', Helpers::snake_case_to_sentence_case( '' ) );
+	}
 }
