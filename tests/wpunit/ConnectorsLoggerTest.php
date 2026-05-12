@@ -381,7 +381,7 @@ class ConnectorsLoggerTest extends \Codeception\TestCase\WPTestCase {
 		$this->assertCount( 1, $links );
 		$this->assertEquals( 'edit', $links[0]['action'] );
 		$this->assertStringContainsString( 'options-connectors.php', $links[0]['url'] );
-		$this->assertStringContainsString( 'Edit connector settings', $links[0]['label'] );
+		$this->assertStringContainsString( 'Manage connectors', $links[0]['label'] );
 	}
 
 	public function test_action_links_returns_empty_when_user_cannot_manage_options() {

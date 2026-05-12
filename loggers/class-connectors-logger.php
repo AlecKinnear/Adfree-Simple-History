@@ -314,7 +314,7 @@ class Connectors_Logger extends Logger {
 		return array(
 			array(
 				'url'    => admin_url( 'options-connectors.php' ),
-				'label'  => __( 'Edit connector settings', 'simple-history' ),
+				'label'  => __( 'Manage connectors', 'simple-history' ),
 				'action' => 'edit',
 			),
 		);
