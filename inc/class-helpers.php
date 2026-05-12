@@ -410,7 +410,13 @@ class Helpers {
 			return [];
 		}
 
-		// Try to get sizes using dbstat (may not be available in wp-playground).
+		// Try to get sizes using dbstat. The virtual table is only present
+		// when SQLite was built with SQLITE_ENABLE_DBSTAT_VTAB — wp-playground's
+		// PHP.wasm SQLite is not. Suppress wpdb errors around the queries so
+		// `WP_DEBUG` doesn't dump the "no such table: dbstat" notice; null
+		// returns are handled below (falls back to "N/A").
+		$suppress_errors = $wpdb->suppress_errors();
+
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 		$events_size_result = $wpdb->get_var(
 			$wpdb->prepare(
@@ -426,6 +432,8 @@ class Helpers {
 				$contexts_table
 			)
 		);
+
+		$wpdb->suppress_errors( $suppress_errors );
 
 		// Use results if available, otherwise show N/A.
 		$events_size   = $events_size_result !== null ? round( (float) $events_size_result, 2 ) : 'N/A';
