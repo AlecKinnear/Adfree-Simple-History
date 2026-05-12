@@ -1,6 +1,6 @@
 ---
 name: testing
-description: Guidance for writing and running tests in Simple History. Covers which framework to use, how to run existing tests, and how to write new ones.
+description: Guidance for writing and running tests in Simple History. Covers which framework to use, how to run existing tests, and how to create new ones (including the codegen recording workflow).
 allowed-tools: Read, Bash, Edit, Write
 ---
 
@@ -42,6 +42,66 @@ npm test
 -   **Target:** dev WordPress at `http://wordpress-stable-docker-mariadb.test:8282` (override with `PLAYWRIGHT_BASE_URL` env var)
 -   **Admin credentials:** `claude` / `claude` (override with `WP_ADMIN_USER` / `WP_ADMIN_PASSWORD`)
 -   **HTML report:** written to `playwright-report/` after each run — open it to debug failures
+
+### CLI shortcuts
+
+```bash
+# Record a test by clicking through the browser — outputs ready-to-paste code
+npx playwright codegen http://wordpress-stable-docker-mariadb.test:8282/wp-admin/
+
+# Run a single spec file (faster iteration than the full suite)
+npx playwright test tests/playwright/my-feature.spec.js
+```
+
+See https://playwright.dev/docs/getting-started-cli for the full CLI reference.
+
+### Creating a new test (codegen workflow)
+
+When the user asks for help creating a new Playwright test, walk them through this flow:
+
+**1. Record by clicking through the browser:**
+
+```bash
+npx playwright codegen --load-storage=tests/playwright/.auth/admin.json http://wordpress-stable-docker-mariadb.test:8282/wp-admin/
+```
+
+`--load-storage` reuses the cached admin session, so codegen lands straight in wp-admin without making the user log in again. Without it, the recorded test will include the login form fill — noise you'd delete anyway.
+
+In the inspector toolbar, use the **Pick locator** (cursor icon) and assertion tools (eye / `ab` / form) to add `expect()` calls — clicking through alone produces a click log, not a test.
+
+**2. Clean up the codegen output.** The raw spec looks like this:
+
+```js
+import { test, expect } from '@playwright/test';
+
+test.use( { storageState: 'tests/playwright/.auth/admin.json' } ); // remove
+test( 'test', async ( { page } ) => {
+	// rename
+	await page.goto( 'http://wordpress-stable-docker-mariadb.test:8282/...' ); // make relative
+	// ...
+} );
+```
+
+Apply these conventions to match the rest of the suite:
+
+-   Use `require()` (CommonJS), not `import` — matches `log-page.spec.js`, `post-logging.spec.js`.
+-   Drop `test.use({ storageState })` — the chromium project in `playwright.config.js` already sets it.
+-   Use relative URLs (`/wp-admin/...`) — `baseURL` is configured.
+-   Give the test a descriptive name — it shows up in reports.
+-   Group related tests with `test.describe()` and share setup in `beforeEach()`.
+-   **Always wait for `.SimpleHistoryLogitems.is-loaded`** before asserting on log rows — the list renders empty first, then hydrates from the REST API.
+
+**3. Save to `tests/playwright/<feature-name>.spec.js`** — testDir picks it up automatically.
+
+**4. Run just that file while iterating:**
+
+```bash
+npx playwright test tests/playwright/<feature-name>.spec.js
+```
+
+Or use UI mode for fast edit-and-rerun: `npm run test:playwright:ui`.
+
+**5. Debug failures** with `npx playwright show-report` — frame-by-frame trace replay.
 
 ### Writing a new Playwright test
 
