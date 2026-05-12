@@ -2,6 +2,8 @@
 
 namespace Simple_History\Loggers;
 
+use Simple_History\Helpers;
+
 /**
  * Logs changes to API keys managed by the WordPress Connectors API (WP 7.0+).
  *
@@ -195,7 +197,7 @@ class Connectors_Logger extends Logger {
 
 		$context = $this->build_base_context( $connector_id, $connector_data );
 
-		$context['api_key_new_last_4'] = $this->last_4( $value );
+		$context['api_key_new_last_4'] = Helpers::mask_secret( $value );
 
 		$this->info_message( 'connector_api_key_added', $context );
 	}
@@ -222,19 +224,19 @@ class Connectors_Logger extends Logger {
 		$context = $this->build_base_context( $connector_id, $connector_data );
 
 		if ( $old_string === '' && $new_string !== '' ) {
-			$context['api_key_new_last_4'] = $this->last_4( $new_string );
+			$context['api_key_new_last_4'] = Helpers::mask_secret( $new_string );
 			$this->info_message( 'connector_api_key_added', $context );
 			return;
 		}
 
 		if ( $old_string !== '' && $new_string === '' ) {
-			$context['api_key_prev_last_4'] = $this->last_4( $old_string );
+			$context['api_key_prev_last_4'] = Helpers::mask_secret( $old_string );
 			$this->warning_message( 'connector_api_key_removed', $context );
 			return;
 		}
 
-		$context['api_key_prev_last_4'] = $this->last_4( $old_string );
-		$context['api_key_new_last_4']  = $this->last_4( $new_string );
+		$context['api_key_prev_last_4'] = Helpers::mask_secret( $old_string );
+		$context['api_key_new_last_4']  = Helpers::mask_secret( $new_string );
 
 		$this->notice_message( 'connector_api_key_updated', $context );
 	}
@@ -253,7 +255,7 @@ class Connectors_Logger extends Logger {
 
 		$context = $this->build_base_context( $connector_id, $connector_data );
 
-		$context['api_key_prev_last_4'] = $this->last_4( $old_value );
+		$context['api_key_prev_last_4'] = Helpers::mask_secret( $old_value );
 
 		$this->warning_message( 'connector_api_key_removed', $context );
 	}
@@ -272,24 +274,5 @@ class Connectors_Logger extends Logger {
 			'connector_type'         => $connector_data['type'] ?? '',
 			'connector_setting_name' => $connector_data['authentication']['setting_name'] ?? '',
 		);
-	}
-
-	/**
-	 * Returns the last four characters of an API key for low-risk identification.
-	 *
-	 * For keys of 4 chars or fewer, returns an asterisk mask of equal length —
-	 * never the raw value. The point is identification by suffix, not exposure.
-	 *
-	 * @param string $key API key value.
-	 * @return string
-	 */
-	protected function last_4( $key ) {
-		$length = strlen( $key );
-
-		if ( $length <= 4 ) {
-			return str_repeat( '*', $length );
-		}
-
-		return substr( $key, -4 );
 	}
 }

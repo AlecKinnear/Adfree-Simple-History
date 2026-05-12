@@ -227,4 +227,40 @@ class HelpersTest extends \Codeception\TestCase\WPTestCase {
 		$test_object->emoji = '👋';
 		$this->assertEquals( $test_object, Helpers::strip_4_byte_chars( $test_object ) );
 	}
+
+	function test_mask_secret_returns_last_four_for_long_values() {
+		$this->assertEquals( '7890', Helpers::mask_secret( 'sk-ant-test-1234567890' ) );
+		$this->assertEquals( 'EFGH', Helpers::mask_secret( 'abcdEFGH' ) );
+		$this->assertEquals( 'cdef', Helpers::mask_secret( 'abcdef' ) );
+	}
+
+	function test_mask_secret_masks_when_secret_too_short_to_expose_suffix() {
+		// Length exactly equal to suffix → mask entirely; otherwise we'd return the whole secret.
+		$this->assertEquals( '****', Helpers::mask_secret( 'abcd' ) );
+		$this->assertEquals( '***', Helpers::mask_secret( 'abc' ) );
+		$this->assertEquals( '*', Helpers::mask_secret( 'a' ) );
+	}
+
+	function test_mask_secret_returns_empty_for_empty_input() {
+		$this->assertEquals( '', Helpers::mask_secret( '' ) );
+	}
+
+	function test_mask_secret_casts_non_strings() {
+		// Integer cast to "1234567" (length 7) → last 4 chars exposed.
+		$this->assertEquals( '4567', Helpers::mask_secret( 1234567 ) );
+		// null casts to '' → empty in, empty out.
+		$this->assertEquals( '', Helpers::mask_secret( null ) );
+		// Short integer cast to "12" (length 2) → fully masked.
+		$this->assertEquals( '**', Helpers::mask_secret( 12 ) );
+	}
+
+	function test_mask_secret_respects_custom_visible_suffix() {
+		$this->assertEquals( '90', Helpers::mask_secret( 'abc1234567890', 2 ) );
+		$this->assertEquals( '4567890', Helpers::mask_secret( 'abc1234567890', 7 ) );
+	}
+
+	function test_mask_secret_full_mask_when_visible_suffix_zero_or_negative() {
+		$this->assertEquals( '**********', Helpers::mask_secret( 'longstring', -1 ) );
+		$this->assertEquals( '**********', Helpers::mask_secret( 'longstring', 0 ) );
+	}
 }

@@ -634,6 +634,38 @@ class Helpers {
 	}
 
 	/**
+	 * Return a low-information identifier for a secret value, safe to log.
+	 *
+	 * Returns the last `$visible_suffix` characters of `$secret`, suitable for
+	 * recording which credential changed without exposing the credential itself.
+	 * For secrets short enough that the visible suffix would *be* the secret,
+	 * returns an asterisk mask of the same length so callers cannot accidentally
+	 * persist the full value.
+	 *
+	 * Use for API keys, tokens, passwords — anything that should never appear
+	 * verbatim in event context, debug output, or downstream UI.
+	 *
+	 * @param string $secret         The secret to identify. Non-strings are cast.
+	 * @param int    $visible_suffix Number of trailing characters to expose.
+	 *                               Defaults to 4. Values < 1 force a full mask.
+	 * @return string
+	 */
+	public static function mask_secret( $secret, $visible_suffix = 4 ) {
+		$secret = (string) $secret;
+		$length = strlen( $secret );
+
+		if ( $length === 0 ) {
+			return '';
+		}
+
+		if ( $visible_suffix < 1 || $length <= $visible_suffix ) {
+			return str_repeat( '*', $length );
+		}
+
+		return substr( $secret, -$visible_suffix );
+	}
+
+	/**
 	 * Anonymize IP-address using the WordPress function wp_privacy_anonymize_ip(),
 	 * with addition that it replaces the last 0 with a "x" so
 	 * users hopefully understand that it is a modified IP-address
