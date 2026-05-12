@@ -52,6 +52,27 @@ Changelogs are for **humans, not machines**. Write for both technical and non-te
 -   Group related small changes into a single entry rather than listing each separately
 -   Omit internal refactors, code cleanup, and dev tooling changes unless they affect users
 -   Omit new PHP/JS functions, helpers, or APIs — these are internal and not user-facing (e.g., don't list `Helpers::get_filtered_history_url()`)
+-   Cut implementation detail. Filter names, fallback chains, caching strategy, byte limits, index prefix lengths — these belong in the PR description, not the changelog. Lead with the user-visible effect; stop before the "how it works" explanation
+
+**Too long → tightened (real example):**
+
+```
+❌ New installs now create the history tables with `$wpdb->get_charset_collate()` (matching
+   WordPress core's pattern since 4.2) instead of a hardcoded `CHARSET=utf8`. On modern hosts
+   this means tables are created as `utf8mb4`, so they can store 4-byte UTF-8 characters
+   like emoji in event context — previously a post title with an emoji could silently drop
+   the entire context row, leaving log entries like `Updated ""` with no user attribution.
+   The contexts table's `key` index is now a 191-char prefix index so it stays under
+   InnoDB's 767-byte limit on older row formats. Existing installs are unchanged by this
+   release; a follow-up will add an opt-in conversion path for older tables.
+
+✅ New installs create history tables as `utf8mb4` (using `$wpdb->get_charset_collate()`),
+   so emoji and other 4-byte UTF-8 characters in event context are preserved instead of
+   silently dropping the entire context row. Existing installs are unchanged; an opt-in
+   conversion path for older tables will follow.
+```
+
+What was cut: WP core history ("since 4.2"), the broken-log example (`Updated ""`), and the InnoDB 767-byte index reasoning. What was kept: the user-visible effect (emoji preserved, context not dropped) and the scope note (existing installs unchanged, follow-up coming).
 
 **Don't write:**
 

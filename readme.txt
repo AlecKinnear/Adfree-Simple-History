@@ -265,11 +265,11 @@ For more information, see our support page [GDPR and Privacy: How Your Data is S
 
 **Fixed**
 
--   🧪 **Experimental** — Failed application password authentication on XML-RPC requests no longer logs an empty username. The attempted username is now captured during the `authenticate` filter chain (XML-RPC) with `$_SERVER['PHP_AUTH_USER']` retained as the fallback (REST API), so brute-force attempts against `xmlrpc.php` show which account is being targeted.
--   "Copy as JSON" and "Copy as Markdown" now include the full event context (request URI, method, user agent, error codes, etc.), so a copied payload is self-contained for triage, support, and bug reports instead of stopping at the message and details. Context is prefetched in the background when the actions menu opens and cached per event, so the event list itself stays lightweight and repeat opens are instant.
--   IP addresses are now surfaced in the REST API response (and admin row header) for failed application password authentication events, matching how wp-login failures already worked. Previously `ip_addresses` came back empty for these events even though the remote address was recorded in context.
--   New installs now create the history tables with `$wpdb->get_charset_collate()` (matching WordPress core's pattern since 4.2) instead of a hardcoded `CHARSET=utf8`. On modern hosts this means tables are created as `utf8mb4`, so they can store 4-byte UTF-8 characters like emoji in event context — previously a post title with an emoji could silently drop the entire context row, leaving log entries like `Updated ""` with no user attribution. The contexts table's `key` index is now a 191-char prefix index so it stays under InnoDB's 767-byte limit on older row formats. Existing installs are unchanged by this release; a follow-up will add an opt-in conversion path for older tables.
--   On SQLite hosts where the optional `dbstat` virtual table isn't compiled in (notably WordPress Playground's PHP.wasm build), the support info endpoint no longer dumps a "no such table: dbstat" database error to the page when `WP_DEBUG` is on. Table size readings already fell back to "N/A" silently in the response — the wrapper just wasn't suppressing the underlying wpdb error.
+-   🧪 **Experimental** — Failed application password authentication on XML-RPC requests no longer logs an empty username, so brute-force attempts against `xmlrpc.php` show which account is being targeted.
+-   "Copy as JSON" and "Copy as Markdown" now include the full event context (request URI, method, user agent, error codes, etc.), making copied payloads self-contained for triage and bug reports.
+-   IP addresses are now included in failed application password authentication events, matching how wp-login failures already worked.
+-   New installs create history tables as `utf8mb4` (using `$wpdb->get_charset_collate()`), so emoji and other 4-byte UTF-8 characters in event context are preserved instead of silently dropping the entire context row. Existing installs are unchanged; an opt-in conversion path for older tables will follow.
+-   Support info page no longer prints a "no such table: dbstat" database error when `WP_DEBUG` is on and SQLite's optional `dbstat` virtual table isn't available (notably on WordPress Playground).
 
 ### 5.27.0 (May 2026)
 
