@@ -507,19 +507,41 @@ class Helpers {
 		);
 
 		// Bail if not exactly two tables found.
-		if ( sizeof( $table_size_result ) !== 2 ) {
+		if ( count( $table_size_result ) !== 2 ) {
+			return [];
+		}
+
+		// information_schema.TABLES has no guaranteed row order, so look up
+		// each table by name rather than trusting positional index.
+		$by_name = [];
+
+		foreach ( $table_size_result as $row ) {
+			$by_name[ $row['table_name'] ] = $row;
+		}
+
+		$events_table   = $simple_history->get_events_table_name();
+		$contexts_table = $simple_history->get_contexts_table_name();
+
+		if ( ! isset( $by_name[ $events_table ], $by_name[ $contexts_table ] ) ) {
 			return [];
 		}
 
 		$table_size_result = [
-			'simple_history'          => $table_size_result[0],
-			'simple_history_contexts' => $table_size_result[1],
+			'simple_history'          => $by_name[ $events_table ],
+			'simple_history_contexts' => $by_name[ $contexts_table ],
 		];
 
 		foreach ( $table_size_result as &$table ) {
 			$collation          = (string) ( $table['collation'] ?? '' );
 			$table['collation'] = $collation !== '' ? $collation : 'N/A';
-			$table['charset']   = $collation !== '' ? strstr( $collation, '_', true ) : 'N/A';
+			// Charset is the prefix before the first underscore in the
+			// collation name (e.g. utf8mb4_unicode_520_ci -> utf8mb4). Some
+			// collations like `binary` have no underscore — fall back to the
+			// full collation name in that case.
+			$charset_prefix   = $collation !== '' ? strstr( $collation, '_', true ) : '';
+			$table['charset'] = $charset_prefix !== false && $charset_prefix !== ''
+				? $charset_prefix
+				: ( $collation !== '' ? $collation : 'N/A' );
 		}
 
 		unset( $table );
