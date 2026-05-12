@@ -16,6 +16,21 @@ class Connectors_Logger extends Logger {
 	public $slug = 'ConnectorsLogger';
 
 	/**
+	 * Connector metadata keyed by setting_name, populated when hooks are bound.
+	 *
+	 * @var array<string, array{id: string, data: array}>
+	 */
+	protected $connectors_by_setting = array();
+
+	/**
+	 * Option values captured in the `delete_option` action, before the DB row
+	 * is removed. Read in `deleted_option` so we have the pre-delete value to log.
+	 *
+	 * @var array<string, mixed>
+	 */
+	protected $pre_delete_values = array();
+
+	/**
 	 * Return logger info.
 	 *
 	 * @return array
@@ -62,6 +77,14 @@ class Connectors_Logger extends Logger {
 
 	/**
 	 * Bind add/update/delete option hooks for each registered connector's API key.
+	 *
+	 * Add and update hooks are bound per-setting via the dynamic `add_option_*`
+	 * and `update_option_*` action names. Deletion needs two passes: the
+	 * `delete_option` action fires *before* the row is removed (so we can read
+	 * the pre-delete value), and `deleted_option` fires *after* a successful
+	 * delete (so we only log when the delete actually happened). Both are
+	 * registered once and dispatch by looking up the option name in
+	 * `$this->connectors_by_setting`.
 	 */
 	public function register_connector_hooks() {
 		if ( ! function_exists( 'wp_get_connectors' ) ) {
@@ -76,6 +99,17 @@ class Connectors_Logger extends Logger {
 			}
 
 			$setting_name = $auth['setting_name'];
+
+			// First connector to claim a setting name wins. Two connectors
+			// sharing one setting would otherwise produce duplicate events.
+			if ( isset( $this->connectors_by_setting[ $setting_name ] ) ) {
+				continue;
+			}
+
+			$this->connectors_by_setting[ $setting_name ] = array(
+				'id'   => $connector_id,
+				'data' => $connector_data,
+			);
 
 			add_action(
 				"add_option_{$setting_name}",
@@ -94,15 +128,51 @@ class Connectors_Logger extends Logger {
 				10,
 				2
 			);
-
-			add_action(
-				"delete_option_{$setting_name}",
-				function () use ( $connector_id, $connector_data, $setting_name ) {
-					$old_value = get_option( $setting_name, '' );
-					$this->on_connector_option_deleted( $connector_id, $connector_data, $old_value );
-				}
-			);
 		}
+
+		if ( empty( $this->connectors_by_setting ) ) {
+			return;
+		}
+
+		add_action( 'delete_option', array( $this, 'capture_value_before_delete' ) );
+		add_action( 'deleted_option', array( $this, 'handle_deleted_option' ) );
+	}
+
+	/**
+	 * Stash a connector setting's value before WordPress deletes it.
+	 *
+	 * Fired by the global `delete_option` action, which runs *before* the
+	 * DB delete. Only stashes values for setting names that belong to a
+	 * registered connector.
+	 *
+	 * @param string $option Option name about to be deleted.
+	 */
+	public function capture_value_before_delete( $option ) {
+		if ( ! isset( $this->connectors_by_setting[ $option ] ) ) {
+			return;
+		}
+
+		$this->pre_delete_values[ $option ] = get_option( $option, '' );
+	}
+
+	/**
+	 * Log a connector option deletion using the value stashed in `capture_value_before_delete`.
+	 *
+	 * Fired by the global `deleted_option` action, which only runs after a
+	 * successful `$wpdb->delete()` — so any log entry here corresponds to a real removal.
+	 *
+	 * @param string $option Option name that was deleted.
+	 */
+	public function handle_deleted_option( $option ) {
+		if ( ! isset( $this->connectors_by_setting[ $option ] ) ) {
+			return;
+		}
+
+		$old_value = $this->pre_delete_values[ $option ] ?? '';
+		unset( $this->pre_delete_values[ $option ] );
+
+		$connector_info = $this->connectors_by_setting[ $option ];
+		$this->on_connector_option_deleted( $connector_info['id'], $connector_info['data'], $old_value );
 	}
 
 	/**
@@ -201,12 +271,17 @@ class Connectors_Logger extends Logger {
 	/**
 	 * Returns the last four characters of an API key for low-risk identification.
 	 *
+	 * For keys of 4 chars or fewer, returns an asterisk mask of equal length —
+	 * never the raw value. The point is identification by suffix, not exposure.
+	 *
 	 * @param string $key API key value.
 	 * @return string
 	 */
 	protected function last_4( $key ) {
-		if ( strlen( $key ) <= 4 ) {
-			return $key;
+		$length = strlen( $key );
+
+		if ( $length <= 4 ) {
+			return str_repeat( '*', $length );
 		}
 
 		return substr( $key, -4 );

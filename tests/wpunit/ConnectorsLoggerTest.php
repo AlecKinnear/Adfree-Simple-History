@@ -162,6 +162,90 @@ class ConnectorsLoggerTest extends \Codeception\TestCase\WPTestCase {
 	}
 
 	/**
+	 * Short keys (≤ 4 chars) must be masked entirely, not stored verbatim.
+	 */
+	public function test_short_key_is_masked_not_leaked() {
+		$this->logger->on_connector_option_added( 'anthropic', $this->fake_connector, 'abcd' );
+
+		$context = get_latest_context();
+
+		$this->assert_context_has( $context, 'api_key_new_last_4', '****' );
+		$this->assert_context_does_not_contain_full_key( $context, 'abcd' );
+	}
+
+	/**
+	 * Full delete flow: simulate the captured pre-value and run the deleted_option handler.
+	 * Regression test — earlier version used `delete_option_{$option}` which fires AFTER
+	 * the row is gone, so `get_option()` returned an empty default and we silently logged nothing.
+	 */
+	public function test_handle_deleted_option_logs_via_global_hook_pair() {
+		$setting_name = $this->fake_connector['authentication']['setting_name'];
+
+		$reflection                    = new ReflectionClass( Connectors_Logger::class );
+		$connectors_by_setting_prop    = $reflection->getProperty( 'connectors_by_setting' );
+		$pre_delete_values_prop        = $reflection->getProperty( 'pre_delete_values' );
+		$connectors_by_setting_prop->setAccessible( true );
+		$pre_delete_values_prop->setAccessible( true );
+
+		$connectors_by_setting_prop->setValue(
+			$this->logger,
+			array(
+				$setting_name => array(
+					'id'   => 'anthropic',
+					'data' => $this->fake_connector,
+				),
+			)
+		);
+		$pre_delete_values_prop->setValue( $this->logger, array( $setting_name => 'sk-ant-test-DELE' ) );
+
+		$this->logger->handle_deleted_option( $setting_name );
+
+		$context = get_latest_context();
+		$this->assert_context_has( $context, '_message_key', 'connector_api_key_removed' );
+		$this->assert_context_has( $context, 'api_key_prev_last_4', 'DELE' );
+		$this->assert_context_does_not_contain_full_key( $context, 'sk-ant-test-DELE' );
+
+		// The stash entry should have been consumed.
+		$this->assertSame( array(), $pre_delete_values_prop->getValue( $this->logger ) );
+	}
+
+	/**
+	 * Real end-to-end delete via WordPress: ensure that `delete_option()` on a
+	 * connector setting produces a log entry. This is the path the reviewer
+	 * flagged as broken in the original implementation.
+	 */
+	public function test_delete_option_on_connector_setting_logs_removal() {
+		$setting_name = $this->fake_connector['authentication']['setting_name'];
+
+		$reflection                 = new ReflectionClass( Connectors_Logger::class );
+		$connectors_by_setting_prop = $reflection->getProperty( 'connectors_by_setting' );
+		$connectors_by_setting_prop->setAccessible( true );
+		$connectors_by_setting_prop->setValue(
+			$this->logger,
+			array(
+				$setting_name => array(
+					'id'   => 'anthropic',
+					'data' => $this->fake_connector,
+				),
+			)
+		);
+
+		// Register the global delete hooks (mirrors what register_connector_hooks does).
+		remove_action( 'delete_option', array( $this->logger, 'capture_value_before_delete' ) );
+		remove_action( 'deleted_option', array( $this->logger, 'handle_deleted_option' ) );
+		add_action( 'delete_option', array( $this->logger, 'capture_value_before_delete' ) );
+		add_action( 'deleted_option', array( $this->logger, 'handle_deleted_option' ) );
+
+		add_option( $setting_name, 'sk-ant-real-DELL' );
+
+		delete_option( $setting_name );
+
+		$context = get_latest_context();
+		$this->assert_context_has( $context, '_message_key', 'connector_api_key_removed' );
+		$this->assert_context_has( $context, 'api_key_prev_last_4', 'DELL' );
+	}
+
+	/**
 	 * Assert that a key/value pair exists in the context array.
 	 *
 	 * @param array  $context Context rows from get_latest_context().
