@@ -257,6 +257,10 @@ For more information, see our support page [GDPR and Privacy: How Your Data is S
 
 -   `wp simple-history info` now shows "Experimental features: enabled" when experimental features are active. The line is omitted when they are off, so it only surfaces when relevant.
 
+**Fixed**
+
+-   🧪 **Experimental** — Failed application password authentication on XML-RPC requests no longer logs an empty username. The attempted username is now captured during the `authenticate` filter chain (XML-RPC) with `$_SERVER['PHP_AUTH_USER']` retained as the fallback (REST API), so brute-force attempts against `xmlrpc.php` show which account is being targeted.
+
 ### 5.27.0 (May 2026)
 
 🤖 This release adds AI agent attribution to log events, so you can see when an action was triggered through Claude Code, ChatGPT, or other AI tools. Also, Action links are now front-and-center for media, plugins, users, menus, and failed plugin installs.
