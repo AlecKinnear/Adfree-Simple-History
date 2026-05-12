@@ -367,6 +367,46 @@ class ConnectorsLoggerTest extends \Codeception\TestCase\WPTestCase {
 	}
 
 	/**
+	 * Action link surfaces only when the admin can manage options AND the
+	 * Connectors API is available — never a dead link.
+	 */
+	public function test_action_links_returns_link_when_capable_and_api_present() {
+		if ( ! function_exists( 'wp_get_connectors' ) ) {
+			$this->markTestSkipped( 'Connectors API not available on this WordPress version.' );
+		}
+
+		$row   = new stdClass();
+		$links = $this->logger->get_action_links( $row );
+
+		$this->assertCount( 1, $links );
+		$this->assertEquals( 'edit', $links[0]['action'] );
+		$this->assertStringContainsString( 'options-connectors.php', $links[0]['url'] );
+		$this->assertStringContainsString( 'Edit connector settings', $links[0]['label'] );
+	}
+
+	public function test_action_links_returns_empty_when_user_cannot_manage_options() {
+		// Make sure the current user is a subscriber, not admin.
+		$subscriber_id = $this->factory->user->create( array( 'role' => 'subscriber' ) );
+		wp_set_current_user( $subscriber_id );
+
+		$row   = new stdClass();
+		$links = $this->logger->get_action_links( $row );
+
+		$this->assertSame( array(), $links );
+	}
+
+	public function test_action_links_returns_empty_when_connectors_api_absent() {
+		if ( function_exists( 'wp_get_connectors' ) ) {
+			$this->markTestSkipped( 'Connectors API present on this runtime; the missing-API path is not reachable here.' );
+		}
+
+		$row   = new stdClass();
+		$links = $this->logger->get_action_links( $row );
+
+		$this->assertSame( array(), $links );
+	}
+
+	/**
 	 * Render the logger's Event_Details_Group to HTML through its formatter.
 	 *
 	 * @param object $row Mock row passed into get_log_row_details_output.

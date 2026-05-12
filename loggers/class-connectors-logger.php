@@ -290,6 +290,37 @@ class Connectors_Logger extends Logger {
 	}
 
 	/**
+	 * Action link to the WordPress 7.0 Connectors settings page.
+	 *
+	 * Only surfaced when the Connectors page is actually reachable on this
+	 * site (i.e. WP 7.0+ and the AI Client class is loaded). On older WP, or
+	 * if a future WP version moves the page, we silently omit the link rather
+	 * than handing the admin a dead end.
+	 *
+	 * @param object $row Log row (unused — the page is a single global URL).
+	 * @return array<array{url: string, label: string, action: string}>
+	 */
+	public function get_action_links( $row ) {
+		unset( $row );
+
+		if ( ! current_user_can( 'manage_options' ) ) {
+			return array();
+		}
+
+		if ( ! function_exists( 'wp_get_connectors' ) ) {
+			return array();
+		}
+
+		return array(
+			array(
+				'url'    => admin_url( 'options-connectors.php' ),
+				'label'  => __( 'Edit connector settings', 'simple-history' ),
+				'action' => 'edit',
+			),
+		);
+	}
+
+	/**
 	 * Describe a secret for the context array in a way that's safe to log.
 	 *
 	 * For secrets long enough that the last 4 chars don't constitute the whole
