@@ -638,31 +638,59 @@ class Helpers {
 	 *
 	 * Returns the last `$visible_suffix` characters of `$secret`, suitable for
 	 * recording which credential changed without exposing the credential itself.
-	 * For secrets short enough that the visible suffix would *be* the secret,
-	 * returns an asterisk mask of the same length so callers cannot accidentally
-	 * persist the full value.
+	 *
+	 * Returns `null` when there is no value (empty input), when no characters
+	 * can be safely exposed (`$visible_suffix < 1`), or when the secret is too
+	 * short to expose a suffix without effectively revealing the whole value
+	 * (length <= $visible_suffix). Callers should treat `null` as "do not
+	 * store a partial identifier" and record only the fact of presence/length.
 	 *
 	 * Use for API keys, tokens, passwords — anything that should never appear
 	 * verbatim in event context, debug output, or downstream UI.
 	 *
 	 * @param string $secret         The secret to identify. Non-strings are cast.
 	 * @param int    $visible_suffix Number of trailing characters to expose.
-	 *                               Defaults to 4. Values < 1 force a full mask.
-	 * @return string
+	 *                               Defaults to 4. Values < 1 force null.
+	 * @return string|null
 	 */
 	public static function mask_secret( $secret, $visible_suffix = 4 ) {
 		$secret = (string) $secret;
 		$length = strlen( $secret );
 
-		if ( $length === 0 ) {
-			return '';
-		}
-
-		if ( $visible_suffix < 1 || $length <= $visible_suffix ) {
-			return str_repeat( '*', $length );
+		if ( $length === 0 || $visible_suffix < 1 || $length <= $visible_suffix ) {
+			return null;
 		}
 
 		return substr( $secret, -$visible_suffix );
+	}
+
+	/**
+	 * Format a masked-secret suffix for human-readable display.
+	 *
+	 * Produces a credential-style string like `••••XXXX`: a run of Unicode
+	 * bullets (U+2022) followed by the visible suffix. The bullet run is
+	 * capped at `$masked_length` to avoid runaway-width strings when keys
+	 * happen to be very long (the original length isn't material — the point
+	 * is "looks like a credential"). Matches the visual convention used by
+	 * Stripe, GitHub, OpenAI, and WordPress 7.0's own Connectors page.
+	 *
+	 * Returns the empty string when `$suffix` is empty so callers can render
+	 * "no value" cleanly.
+	 *
+	 * @param string|null $suffix        Suffix to display (typically from `mask_secret()`).
+	 * @param int         $masked_length Number of bullets to prepend. Defaults to 12.
+	 * @return string
+	 */
+	public static function format_masked_secret_for_display( $suffix, $masked_length = 12 ) {
+		$suffix = (string) ( $suffix ?? '' );
+
+		if ( $suffix === '' ) {
+			return '';
+		}
+
+		$masked_length = max( 0, (int) $masked_length );
+
+		return str_repeat( "\u{2022}", $masked_length ) . $suffix;
 	}
 
 	/**

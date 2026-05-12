@@ -162,14 +162,24 @@ class ConnectorsLoggerTest extends \Codeception\TestCase\WPTestCase {
 	}
 
 	/**
-	 * Short keys (≤ 4 chars) must be masked entirely, not stored verbatim.
+	 * Short keys (≤ 4 chars) must NOT have a `last_4` field stored at all
+	 * (storing `'****'` adds zero forensic value and falsely implies a
+	 * partial). Instead the audit record carries length + a was-short flag.
 	 */
-	public function test_short_key_is_masked_not_leaked() {
+	public function test_short_key_stores_length_not_suffix() {
 		$this->logger->on_connector_option_added( 'anthropic', $this->fake_connector, 'abcd' );
 
 		$context = get_latest_context();
 
-		$this->assert_context_has( $context, 'api_key_new_last_4', '****' );
+		$this->assert_context_has( $context, 'api_key_new_was_short', 'true' );
+		$this->assert_context_has( $context, 'api_key_new_length', '4' );
+		$this->assertEmpty(
+			array_filter(
+				$context,
+				static fn ( $row ) => ( $row['key'] ?? '' ) === 'api_key_new_last_4'
+			),
+			'No last_4 entry should be stored for short keys'
+		);
 		$this->assert_context_does_not_contain_full_key( $context, 'abcd' );
 	}
 
@@ -295,6 +305,77 @@ class ConnectorsLoggerTest extends \Codeception\TestCase\WPTestCase {
 		$context = get_latest_context();
 		$this->assert_context_has( $context, '_message_key', 'connector_api_key_removed' );
 		$this->assert_context_has( $context, 'api_key_prev_last_4', 'DELL' );
+	}
+
+	/**
+	 * The event details renderer should produce a bullet-prefixed credential
+	 * display (`••••7890`) from a stored last_4 suffix.
+	 */
+	public function test_event_details_renders_last_4_with_bullets() {
+		$row          = new stdClass();
+		$row->context = array(
+			'connector_setting_name' => 'connectors_ai_anthropic_api_key',
+			'connector_type'         => 'ai_provider',
+			'api_key_new_last_4'     => '7890',
+		);
+
+		$output = $this->render_event_details( $row );
+
+		// The rendered HTML must contain the bullet-formatted credential and
+		// not the raw "7890" fragment standing alone.
+		$this->assertStringContainsString( "\u{2022}\u{2022}\u{2022}\u{2022}", $output );
+		$this->assertStringContainsString( '7890', $output );
+		$this->assertStringContainsString( 'New API key', $output );
+	}
+
+	/**
+	 * Short-secret rendering should produce a non-disclosing length notice
+	 * rather than the bullet-credential format.
+	 */
+	public function test_event_details_renders_short_secret_as_length_notice() {
+		$row          = new stdClass();
+		$row->context = array(
+			'connector_setting_name' => 'connectors_ai_anthropic_api_key',
+			'api_key_new_was_short'  => 'true',
+			'api_key_new_length'     => '3',
+		);
+
+		$output = $this->render_event_details( $row );
+
+		$this->assertStringContainsString( '3 characters', $output );
+		// And critically: no bullets, no false-partial.
+		$this->assertStringNotContainsString( "\u{2022}", $output );
+	}
+
+	/**
+	 * Both previous and new keys should render side-by-side on an update.
+	 */
+	public function test_event_details_renders_both_directions_on_update() {
+		$row          = new stdClass();
+		$row->context = array(
+			'connector_setting_name' => 'connectors_ai_anthropic_api_key',
+			'api_key_prev_last_4'    => 'ABCD',
+			'api_key_new_last_4'     => 'WXYZ',
+		);
+
+		$output = $this->render_event_details( $row );
+
+		$this->assertStringContainsString( 'Previous API key', $output );
+		$this->assertStringContainsString( 'New API key', $output );
+		$this->assertStringContainsString( 'ABCD', $output );
+		$this->assertStringContainsString( 'WXYZ', $output );
+	}
+
+	/**
+	 * Render the logger's Event_Details_Group to HTML through its formatter.
+	 *
+	 * @param object $row Mock row passed into get_log_row_details_output.
+	 * @return string
+	 */
+	private function render_event_details( $row ): string {
+		$group = $this->logger->get_log_row_details_output( $row );
+
+		return (string) $group->formatter->to_html( $group );
 	}
 
 	/**

@@ -234,24 +234,25 @@ class HelpersTest extends \Codeception\TestCase\WPTestCase {
 		$this->assertEquals( 'cdef', Helpers::mask_secret( 'abcdef' ) );
 	}
 
-	function test_mask_secret_masks_when_secret_too_short_to_expose_suffix() {
-		// Length exactly equal to suffix → mask entirely; otherwise we'd return the whole secret.
-		$this->assertEquals( '****', Helpers::mask_secret( 'abcd' ) );
-		$this->assertEquals( '***', Helpers::mask_secret( 'abc' ) );
-		$this->assertEquals( '*', Helpers::mask_secret( 'a' ) );
+	function test_mask_secret_returns_null_when_secret_too_short_to_expose_suffix() {
+		// At or below visible_suffix length: returning the suffix would *be* the secret.
+		// Returning null signals callers to record only presence/length, not a useless mask.
+		$this->assertNull( Helpers::mask_secret( 'abcd' ) );
+		$this->assertNull( Helpers::mask_secret( 'abc' ) );
+		$this->assertNull( Helpers::mask_secret( 'a' ) );
 	}
 
-	function test_mask_secret_returns_empty_for_empty_input() {
-		$this->assertEquals( '', Helpers::mask_secret( '' ) );
+	function test_mask_secret_returns_null_for_empty_input() {
+		$this->assertNull( Helpers::mask_secret( '' ) );
 	}
 
 	function test_mask_secret_casts_non_strings() {
 		// Integer cast to "1234567" (length 7) → last 4 chars exposed.
 		$this->assertEquals( '4567', Helpers::mask_secret( 1234567 ) );
-		// null casts to '' → empty in, empty out.
-		$this->assertEquals( '', Helpers::mask_secret( null ) );
-		// Short integer cast to "12" (length 2) → fully masked.
-		$this->assertEquals( '**', Helpers::mask_secret( 12 ) );
+		// null casts to '' → null in, null out.
+		$this->assertNull( Helpers::mask_secret( null ) );
+		// Short integer cast to "12" (length 2) → null (too short).
+		$this->assertNull( Helpers::mask_secret( 12 ) );
 	}
 
 	function test_mask_secret_respects_custom_visible_suffix() {
@@ -259,8 +260,34 @@ class HelpersTest extends \Codeception\TestCase\WPTestCase {
 		$this->assertEquals( '4567890', Helpers::mask_secret( 'abc1234567890', 7 ) );
 	}
 
-	function test_mask_secret_full_mask_when_visible_suffix_zero_or_negative() {
-		$this->assertEquals( '**********', Helpers::mask_secret( 'longstring', -1 ) );
-		$this->assertEquals( '**********', Helpers::mask_secret( 'longstring', 0 ) );
+	function test_mask_secret_returns_null_when_visible_suffix_zero_or_negative() {
+		$this->assertNull( Helpers::mask_secret( 'longstring', -1 ) );
+		$this->assertNull( Helpers::mask_secret( 'longstring', 0 ) );
+	}
+
+	function test_format_masked_secret_for_display_prepends_bullets() {
+		// U+2022 BULLET. Default mask length is 12.
+		$this->assertEquals(
+			"\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}7890",
+			Helpers::format_masked_secret_for_display( '7890' )
+		);
+	}
+
+	function test_format_masked_secret_for_display_respects_custom_mask_length() {
+		$this->assertEquals(
+			"\u{2022}\u{2022}\u{2022}\u{2022}EFGH",
+			Helpers::format_masked_secret_for_display( 'EFGH', 4 )
+		);
+	}
+
+	function test_format_masked_secret_for_display_returns_empty_for_empty_input() {
+		$this->assertEquals( '', Helpers::format_masked_secret_for_display( '' ) );
+		$this->assertEquals( '', Helpers::format_masked_secret_for_display( null ) );
+	}
+
+	function test_format_masked_secret_for_display_clamps_negative_mask_length() {
+		// Negative or zero mask length: just the suffix, no bullets.
+		$this->assertEquals( '7890', Helpers::format_masked_secret_for_display( '7890', 0 ) );
+		$this->assertEquals( '7890', Helpers::format_masked_secret_for_display( '7890', -5 ) );
 	}
 }

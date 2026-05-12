@@ -2,6 +2,9 @@
 
 namespace Simple_History\Loggers;
 
+use Simple_History\Event_Details\Event_Details_Group;
+use Simple_History\Event_Details\Event_Details_Group_Table_Formatter;
+use Simple_History\Event_Details\Event_Details_Item;
 use Simple_History\Helpers;
 
 /**
@@ -195,9 +198,10 @@ class Connectors_Logger extends Logger {
 			return;
 		}
 
-		$context = $this->build_base_context( $connector_id, $connector_data );
-
-		$context['api_key_new_last_4'] = Helpers::mask_secret( $value );
+		$context = array_merge(
+			$this->build_base_context( $connector_id, $connector_data ),
+			$this->build_secret_descriptor( 'new', $value )
+		);
 
 		$this->info_message( 'connector_api_key_added', $context );
 	}
@@ -221,24 +225,32 @@ class Connectors_Logger extends Logger {
 			return;
 		}
 
-		$context = $this->build_base_context( $connector_id, $connector_data );
+		$base_context = $this->build_base_context( $connector_id, $connector_data );
 
 		if ( $old_string === '' && $new_string !== '' ) {
-			$context['api_key_new_last_4'] = Helpers::mask_secret( $new_string );
-			$this->info_message( 'connector_api_key_added', $context );
+			$this->info_message(
+				'connector_api_key_added',
+				array_merge( $base_context, $this->build_secret_descriptor( 'new', $new_string ) )
+			);
 			return;
 		}
 
 		if ( $old_string !== '' && $new_string === '' ) {
-			$context['api_key_prev_last_4'] = Helpers::mask_secret( $old_string );
-			$this->warning_message( 'connector_api_key_removed', $context );
+			$this->warning_message(
+				'connector_api_key_removed',
+				array_merge( $base_context, $this->build_secret_descriptor( 'prev', $old_string ) )
+			);
 			return;
 		}
 
-		$context['api_key_prev_last_4'] = Helpers::mask_secret( $old_string );
-		$context['api_key_new_last_4']  = Helpers::mask_secret( $new_string );
-
-		$this->notice_message( 'connector_api_key_updated', $context );
+		$this->notice_message(
+			'connector_api_key_updated',
+			array_merge(
+				$base_context,
+				$this->build_secret_descriptor( 'prev', $old_string ),
+				$this->build_secret_descriptor( 'new', $new_string )
+			)
+		);
 	}
 
 	/**
@@ -253,9 +265,10 @@ class Connectors_Logger extends Logger {
 			return;
 		}
 
-		$context = $this->build_base_context( $connector_id, $connector_data );
-
-		$context['api_key_prev_last_4'] = Helpers::mask_secret( $old_value );
+		$context = array_merge(
+			$this->build_base_context( $connector_id, $connector_data ),
+			$this->build_secret_descriptor( 'prev', $old_value )
+		);
 
 		$this->warning_message( 'connector_api_key_removed', $context );
 	}
@@ -274,5 +287,121 @@ class Connectors_Logger extends Logger {
 			'connector_type'         => $connector_data['type'] ?? '',
 			'connector_setting_name' => $connector_data['authentication']['setting_name'] ?? '',
 		);
+	}
+
+	/**
+	 * Describe a secret for the context array in a way that's safe to log.
+	 *
+	 * For secrets long enough that the last 4 chars don't constitute the whole
+	 * value, records `api_key_{$direction}_last_4` — a stable, low-information
+	 * identifier matching the GitHub/Stripe/OpenAI/AWS audit-log conventions.
+	 *
+	 * For secrets too short to expose any suffix safely (length <= 4),
+	 * records `api_key_{$direction}_was_short` + `_length` instead. Storing the
+	 * raw short value or a useless asterisk mask would add zero forensic
+	 * value while implying we held a "partial." In practice such inputs are
+	 * almost always invalid test keys, but the audit trail should still
+	 * record that a change occurred.
+	 *
+	 * @param string $direction Either 'new' or 'prev' — keyed into context names.
+	 * @param string $secret    The credential value (never stored in raw form).
+	 * @return array<string, string>
+	 */
+	protected function build_secret_descriptor( $direction, $secret ) {
+		$suffix = Helpers::mask_secret( $secret );
+
+		if ( $suffix !== null ) {
+			return array( "api_key_{$direction}_last_4" => $suffix );
+		}
+
+		return array(
+			"api_key_{$direction}_was_short" => 'true',
+			"api_key_{$direction}_length"    => (string) strlen( $secret ),
+		);
+	}
+
+	/**
+	 * Render the event details table with masked-credential formatting.
+	 *
+	 * Pure-suffix storage (`7890`) is correct for the database but ambiguous
+	 * for a reader: it looks like a fragment rather than a credential. The
+	 * Event Details API lets us format it as `••••7890` at render time,
+	 * matching the visual convention used by Stripe, GitHub, OpenAI, and
+	 * WordPress 7.0's own Connectors page.
+	 *
+	 * @param object $row Log row with `->context` array of stored key/value pairs.
+	 * @return Event_Details_Group
+	 */
+	public function get_log_row_details_output( $row ) {
+		$context = isset( $row->context ) && is_array( $row->context ) ? $row->context : array();
+
+		$group = new Event_Details_Group();
+		$group->set_formatter( new Event_Details_Group_Table_Formatter() );
+
+		if ( ! empty( $context['connector_setting_name'] ) ) {
+			$item = new Event_Details_Item( null, __( 'Setting name', 'simple-history' ) );
+			$item->set_new_value( $context['connector_setting_name'] );
+			$group->add_item( $item );
+		}
+
+		if ( ! empty( $context['connector_type'] ) ) {
+			$item = new Event_Details_Item( null, __( 'Connector type', 'simple-history' ) );
+			$item->set_new_value( $context['connector_type'] );
+			$group->add_item( $item );
+		}
+
+		$prev_display = $this->describe_stored_secret_for_display( $context, 'prev' );
+		if ( $prev_display !== '' ) {
+			$item = new Event_Details_Item( null, __( 'Previous API key', 'simple-history' ) );
+			$item->set_new_value( $prev_display );
+			$group->add_item( $item );
+		}
+
+		$new_display = $this->describe_stored_secret_for_display( $context, 'new' );
+		if ( $new_display !== '' ) {
+			$item = new Event_Details_Item( null, __( 'New API key', 'simple-history' ) );
+			$item->set_new_value( $new_display );
+			$group->add_item( $item );
+		}
+
+		return $group;
+	}
+
+	/**
+	 * Convert one direction's stored secret descriptor back into display text.
+	 *
+	 * Mirror image of `build_secret_descriptor()`: handles both the normal
+	 * `last_4` suffix path (rendered as `••••XXXX`) and the short-secret
+	 * fallback (rendered as a non-disclosing length notice).
+	 *
+	 * @param array  $context   Event context keyed by stored context names.
+	 * @param string $direction Either 'new' or 'prev'.
+	 * @return string Empty string when nothing was stored for this direction.
+	 */
+	protected function describe_stored_secret_for_display( array $context, $direction ) {
+		$suffix_key    = "api_key_{$direction}_last_4";
+		$was_short_key = "api_key_{$direction}_was_short";
+		$length_key    = "api_key_{$direction}_length";
+
+		if ( isset( $context[ $suffix_key ] ) && $context[ $suffix_key ] !== '' ) {
+			return Helpers::format_masked_secret_for_display( $context[ $suffix_key ] );
+		}
+
+		if ( isset( $context[ $was_short_key ] ) && $context[ $was_short_key ] === 'true' ) {
+			$length = isset( $context[ $length_key ] ) ? (int) $context[ $length_key ] : 0;
+
+			return sprintf(
+				/* translators: %d: character count of a value that was too short to mask. */
+				_n(
+					'(value too short to display — %d character)',
+					'(value too short to display — %d characters)',
+					$length,
+					'simple-history'
+				),
+				$length
+			);
+		}
+
+		return '';
 	}
 }
