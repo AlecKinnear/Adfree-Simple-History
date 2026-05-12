@@ -636,12 +636,17 @@ class WP_REST_Support_Info_Controller extends WP_REST_Controller {
 					? round( $table['data_length'] / 1024 / 1024, 2 ) . ' MB'
 					: 'N/A';
 
+				$charset   = $table['charset'] ?? 'N/A';
+				$collation = $table['collation'] ?? 'N/A';
+
 				$lines[] = sprintf(
-					'%s: %s (data: %s), %s rows',
+					'%s: %s (data: %s), %s rows, charset: %s, collation: %s',
 					$table['table_name'],
 					$size,
 					$data_size,
-					number_format_i18n( $table['num_rows'] )
+					number_format_i18n( $table['num_rows'] ),
+					$charset,
+					$collation
 				);
 			}
 		}

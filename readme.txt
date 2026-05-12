@@ -256,6 +256,7 @@ For more information, see our support page [GDPR and Privacy: How Your Data is S
 **Added**
 
 -   "How are AI agents detected?" link in the AI agent attribution tooltip, pointing to a docs article that explains the detection signals.
+-   System Information page (and `wp simple-history db stats` WP-CLI command, and `/wp-json/simple-history/v1/support-info` REST endpoint) now report the charset and collation of each Simple History table. Useful when triaging emoji-related context-drop reports or checking that a site's tables actually upgraded to utf8mb4.
 
 **Changed**
 
@@ -267,6 +268,7 @@ For more information, see our support page [GDPR and Privacy: How Your Data is S
 -   🧪 **Experimental** — Failed application password authentication on XML-RPC requests no longer logs an empty username. The attempted username is now captured during the `authenticate` filter chain (XML-RPC) with `$_SERVER['PHP_AUTH_USER']` retained as the fallback (REST API), so brute-force attempts against `xmlrpc.php` show which account is being targeted.
 -   "Copy as JSON" and "Copy as Markdown" now include the full event context (request URI, method, user agent, error codes, etc.), so a copied payload is self-contained for triage, support, and bug reports instead of stopping at the message and details. Context is prefetched in the background when the actions menu opens and cached per event, so the event list itself stays lightweight and repeat opens are instant.
 -   IP addresses are now surfaced in the REST API response (and admin row header) for failed application password authentication events, matching how wp-login failures already worked. Previously `ip_addresses` came back empty for these events even though the remote address was recorded in context.
+-   New installs now create the history tables with `$wpdb->get_charset_collate()` (matching WordPress core's pattern since 4.2) instead of a hardcoded `CHARSET=utf8`. On modern hosts this means tables are created as `utf8mb4`, so they can store 4-byte UTF-8 characters like emoji in event context — previously a post title with an emoji could silently drop the entire context row, leaving log entries like `Updated ""` with no user attribution. The contexts table's `key` index is now a 191-char prefix index so it stays under InnoDB's 767-byte limit on older row formats. Existing installs are unchanged by this release; a follow-up will add an opt-in conversion path for older tables.
 
 ### 5.27.0 (May 2026)
 

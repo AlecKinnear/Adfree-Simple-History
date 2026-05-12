@@ -357,9 +357,9 @@ class Helpers {
 	}
 
 	/**
-	 * Get number of rows and the size of each Simple History table in the database.
+	 * Get number of rows, size, charset and collation of each Simple History table.
 	 *
-	 * @return array<string, array{table_name: string, size_in_mb: float|string, num_rows: int}>
+	 * @return array<string, array{table_name: string, size_in_mb: float|string, num_rows: int, charset: string, collation: string}>
 	 */
 	public static function get_db_table_stats() {
 		switch ( Log_Query::get_db_engine() ) {
@@ -373,12 +373,16 @@ class Helpers {
 	}
 
 	/**
-	 * Get number of rows and the size of each Simple History table in the database.
+	 * Get number of rows, size, charset and collation of each Simple History table.
 	 *
 	 * Uses sqlite_master to check if tables exist (always available),
 	 * then tries dbstat for size info (may not be available in wp-playground).
 	 *
-	 * @return array<string, array{table_name: string, size_in_mb: float|string, num_rows: int}>
+	 * SQLite stores all text as UTF-8 internally and has no per-table charset
+	 * concept; charset is reported as 'UTF-8' and collation as 'N/A' so callers
+	 * always get the same shape regardless of database engine.
+	 *
+	 * @return array<string, array{table_name: string, size_in_mb: float|string, num_rows: int, charset: string, collation: string}>
 	 */
 	public static function get_db_table_stats_sqlite() {
 		/** @var \wpdb $wpdb */
@@ -438,37 +442,51 @@ class Helpers {
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 		$contexts_rows = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$contexts_table}" );
 
+		// SQLite stores all text as UTF-8 internally; there's no per-table
+		// charset or collation the way MySQL has, so report the encoding once
+		// and mark collation as not applicable.
+		$sqlite_charset   = 'UTF-8';
+		$sqlite_collation = 'N/A';
+
 		return [
 			'simple_history'          => [
 				'table_name' => $events_table,
 				'size_in_mb' => $events_size,
 				'num_rows'   => $events_rows,
+				'charset'    => $sqlite_charset,
+				'collation'  => $sqlite_collation,
 			],
 			'simple_history_contexts' => [
 				'table_name' => $contexts_table,
 				'size_in_mb' => $contexts_size,
 				'num_rows'   => $contexts_rows,
+				'charset'    => $sqlite_charset,
+				'collation'  => $sqlite_collation,
 			],
 		];
 	}
 
 	/**
-	 * Get number of rows and the size of each Simple History table in the database.
+	 * Get number of rows, size, charset and collation of each Simple History table.
 	 *
-	 * @return array<string, array{table_name: string, size_in_mb: float|string, num_rows: int}>
+	 * @return array<string, array{table_name: string, size_in_mb: float|string, num_rows: int, charset: string, collation: string}>
 	 */
 	public static function get_db_table_stats_mysql() {
 		global $wpdb;
 		$simple_history = Simple_History::get_instance();
 
-		// Get table sizes in mb.
+		// Pull size + collation from information_schema.TABLES. The collation
+		// (TABLE_COLLATION) gives us both the collation and the charset — the
+		// charset is the prefix up to the first underscore (e.g.
+		// `utf8mb4_unicode_520_ci` → `utf8mb4`).
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 		$table_size_result = $wpdb->get_results(
 			$wpdb->prepare(
 				'
 					SELECT table_name AS "table_name",
 					round(((data_length + index_length) / 1024 / 1024), 2) "size_in_mb",
-					data_length AS "data_length"
+					data_length AS "data_length",
+					table_collation AS "collation"
 					FROM information_schema.TABLES
 					WHERE table_schema = %s
 					AND table_name IN (%s, %s);
@@ -489,6 +507,14 @@ class Helpers {
 			'simple_history'          => $table_size_result[0],
 			'simple_history_contexts' => $table_size_result[1],
 		];
+
+		foreach ( $table_size_result as &$table ) {
+			$collation          = (string) ( $table['collation'] ?? '' );
+			$table['collation'] = $collation !== '' ? $collation : 'N/A';
+			$table['charset']   = $collation !== '' ? strstr( $collation, '_', true ) : 'N/A';
+		}
+
+		unset( $table );
 
 		// Get num of rows for each table.
 		$table_size_result['simple_history']['num_rows'] = (int) $wpdb->get_var( "select count(*) FROM {$simple_history->get_events_table_name()}" ); // phpcs:ignore
