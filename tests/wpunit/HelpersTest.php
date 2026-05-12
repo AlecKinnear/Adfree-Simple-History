@@ -227,4 +227,77 @@ class HelpersTest extends \Codeception\TestCase\WPTestCase {
 		$test_object->emoji = '👋';
 		$this->assertEquals( $test_object, Helpers::strip_4_byte_chars( $test_object ) );
 	}
+
+	function test_mask_secret_returns_last_four_for_long_values() {
+		$this->assertEquals( '7890', Helpers::mask_secret( 'sk-ant-test-1234567890' ) );
+		$this->assertEquals( 'EFGH', Helpers::mask_secret( 'abcdEFGH' ) );
+		$this->assertEquals( 'cdef', Helpers::mask_secret( 'abcdef' ) );
+	}
+
+	function test_mask_secret_returns_null_when_secret_too_short_to_expose_suffix() {
+		// At or below visible_suffix length: returning the suffix would *be* the secret.
+		// Returning null signals callers to record only presence/length, not a useless mask.
+		$this->assertNull( Helpers::mask_secret( 'abcd' ) );
+		$this->assertNull( Helpers::mask_secret( 'abc' ) );
+		$this->assertNull( Helpers::mask_secret( 'a' ) );
+	}
+
+	function test_mask_secret_returns_null_for_empty_input() {
+		$this->assertNull( Helpers::mask_secret( '' ) );
+	}
+
+	function test_mask_secret_casts_non_strings() {
+		// Integer cast to "1234567" (length 7) → last 4 chars exposed.
+		$this->assertEquals( '4567', Helpers::mask_secret( 1234567 ) );
+		// null casts to '' → null in, null out.
+		$this->assertNull( Helpers::mask_secret( null ) );
+		// Short integer cast to "12" (length 2) → null (too short).
+		$this->assertNull( Helpers::mask_secret( 12 ) );
+	}
+
+	function test_mask_secret_respects_custom_visible_suffix() {
+		$this->assertEquals( '90', Helpers::mask_secret( 'abc1234567890', 2 ) );
+		$this->assertEquals( '4567890', Helpers::mask_secret( 'abc1234567890', 7 ) );
+	}
+
+	function test_mask_secret_returns_null_when_visible_suffix_zero_or_negative() {
+		$this->assertNull( Helpers::mask_secret( 'longstring', -1 ) );
+		$this->assertNull( Helpers::mask_secret( 'longstring', 0 ) );
+	}
+
+	function test_format_masked_secret_for_display_prepends_bullets() {
+		// U+2022 BULLET. Default mask length is 12.
+		$this->assertEquals(
+			"\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}7890",
+			Helpers::format_masked_secret_for_display( '7890' )
+		);
+	}
+
+	function test_format_masked_secret_for_display_respects_custom_mask_length() {
+		$this->assertEquals(
+			"\u{2022}\u{2022}\u{2022}\u{2022}EFGH",
+			Helpers::format_masked_secret_for_display( 'EFGH', 4 )
+		);
+	}
+
+	function test_format_masked_secret_for_display_returns_empty_for_empty_input() {
+		$this->assertEquals( '', Helpers::format_masked_secret_for_display( '' ) );
+		$this->assertEquals( '', Helpers::format_masked_secret_for_display( null ) );
+	}
+
+	function test_format_masked_secret_for_display_clamps_negative_mask_length() {
+		// Negative or zero mask length: just the suffix, no bullets.
+		$this->assertEquals( '7890', Helpers::format_masked_secret_for_display( '7890', 0 ) );
+		$this->assertEquals( '7890', Helpers::format_masked_secret_for_display( '7890', -5 ) );
+	}
+
+	function test_snake_case_to_sentence_case_capitalizes_first_word_only() {
+		$this->assertEquals( 'Spam filtering', Helpers::snake_case_to_sentence_case( 'spam_filtering' ) );
+		$this->assertEquals( 'A long multi word slug', Helpers::snake_case_to_sentence_case( 'a_long_multi_word_slug' ) );
+	}
+
+	function test_snake_case_to_sentence_case_handles_already_clean_input() {
+		$this->assertEquals( 'Hello', Helpers::snake_case_to_sentence_case( 'hello' ) );
+		$this->assertEquals( '', Helpers::snake_case_to_sentence_case( '' ) );
+	}
 }

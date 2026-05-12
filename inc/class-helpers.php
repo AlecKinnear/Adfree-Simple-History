@@ -634,6 +634,84 @@ class Helpers {
 	}
 
 	/**
+	 * Convert a snake_case slug to a "Sentence case" label.
+	 *
+	 * Useful for rendering stored type/category slugs (e.g. `ai_provider`,
+	 * `spam_filtering`) as something readable when no explicit translation
+	 * exists. Capitalises only the first character; the rest stays lowercase
+	 * so multi-word slugs read naturally ("Spam filtering", not
+	 * "Spam Filtering").
+	 *
+	 * @since 5.28.0
+	 *
+	 * @param string $input snake_case identifier.
+	 * @return string
+	 */
+	public static function snake_case_to_sentence_case( $input ) {
+		return ucfirst( str_replace( '_', ' ', (string) $input ) );
+	}
+
+	/**
+	 * Return a low-information identifier for a secret value, safe to log.
+	 *
+	 * Returns the last `$visible_suffix` characters of `$secret`, suitable for
+	 * recording which credential changed without exposing the credential itself.
+	 *
+	 * Returns `null` when there is no value (empty input), when no characters
+	 * can be safely exposed (`$visible_suffix < 1`), or when the secret is too
+	 * short to expose a suffix without effectively revealing the whole value
+	 * (length <= $visible_suffix). Callers should treat `null` as "do not
+	 * store a partial identifier" and record only the fact of presence/length.
+	 *
+	 * Use for API keys, tokens, passwords — anything that should never appear
+	 * verbatim in event context, debug output, or downstream UI.
+	 *
+	 * @param string $secret         The secret to identify. Non-strings are cast.
+	 * @param int    $visible_suffix Number of trailing characters to expose.
+	 *                               Defaults to 4. Values < 1 force null.
+	 * @return string|null
+	 */
+	public static function mask_secret( $secret, $visible_suffix = 4 ) {
+		$secret = (string) $secret;
+		$length = strlen( $secret );
+
+		if ( $length === 0 || $visible_suffix < 1 || $length <= $visible_suffix ) {
+			return null;
+		}
+
+		return substr( $secret, -$visible_suffix );
+	}
+
+	/**
+	 * Format a masked-secret suffix for human-readable display.
+	 *
+	 * Produces a credential-style string like `••••XXXX`: a run of Unicode
+	 * bullets (U+2022) followed by the visible suffix. The bullet run is
+	 * capped at `$masked_length` to avoid runaway-width strings when keys
+	 * happen to be very long (the original length isn't material — the point
+	 * is "looks like a credential"). Matches the visual convention used by
+	 * Stripe, GitHub, OpenAI, and WordPress 7.0's own Connectors page.
+	 *
+	 * Returns the empty string when `$suffix` is empty so callers can render
+	 * "no value" cleanly.
+	 *
+	 * @param string|null $suffix        Suffix to display (typically from `mask_secret()`).
+	 * @param int         $masked_length Number of bullets to prepend. Defaults to 12.
+	 * @return string
+	 */
+	public static function format_masked_secret_for_display( $suffix, $masked_length = 12 ) {
+		$suffix = (string) ( $suffix ?? '' );
+
+		if ( $suffix === '' ) {
+			return '';
+		}
+
+		$masked_length = max( 0, (int) $masked_length );
+
+		return str_repeat( "\u{2022}", $masked_length ) . $suffix;
+	}
+
+	/**
 	 * Anonymize IP-address using the WordPress function wp_privacy_anonymize_ip(),
 	 * with addition that it replaces the last 0 with a "x" so
 	 * users hopefully understand that it is a modified IP-address
