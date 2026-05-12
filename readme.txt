@@ -253,6 +253,10 @@ For more information, see our support page [GDPR and Privacy: How Your Data is S
 
 ### Unreleased
 
+**Added**
+
+-   "How are AI agents detected?" link in the AI agent attribution tooltip, pointing to a docs article that explains the detection signals.
+
 **Changed**
 
 -   `wp simple-history info` now shows "Experimental features: enabled" when experimental features are active. The line is omitted when they are off, so it only surfaces when relevant.
