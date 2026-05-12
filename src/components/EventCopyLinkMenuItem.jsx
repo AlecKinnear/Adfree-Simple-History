@@ -2,7 +2,10 @@ import { MenuItem } from '@wordpress/components';
 import { useCopyToClipboard } from '@wordpress/compose';
 import { useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
-import { link } from '@wordpress/icons';
+import { check, link } from '@wordpress/icons';
+
+// WordPress' success/alert green, matching admin notice-success.
+const COPY_SUCCESS_COLOR = '#00a32a';
 
 export function EventCopyLinkMenuItem( { event } ) {
 	const permalink = event.permalink;
@@ -16,13 +19,17 @@ export function EventCopyLinkMenuItem( { event } ) {
 		setTimeout( () => {
 			setDynamicCopyText( copyText );
 		}, 2000 );
-
-		// A notice after copy link would be better but this does not work for some reason.
 	} );
 
+	const isCopied = dynamicCopyText === copiedText;
+
 	return (
-		<MenuItem icon={ link } ref={ ref }>
-			{ dynamicCopyText }
+		<MenuItem icon={ isCopied ? check : link } ref={ ref }>
+			<span
+				style={ isCopied ? { color: COPY_SUCCESS_COLOR } : undefined }
+			>
+				{ dynamicCopyText }
+			</span>
 		</MenuItem>
 	);
 }

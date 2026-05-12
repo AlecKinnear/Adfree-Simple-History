@@ -256,10 +256,13 @@ For more information, see our support page [GDPR and Privacy: How Your Data is S
 **Changed**
 
 -   `wp simple-history info` now shows "Experimental features: enabled" when experimental features are active. The line is omitted when they are off, so it only surfaces when relevant.
+-   Copy menu items ("Copy event message", "Copy as Markdown", "Copy as JSON", "Copy link to event details") now show a green checkmark and confirmation label for two seconds after copying, making the success state obvious instead of relying on a label change alone.
 
 **Fixed**
 
 -   🧪 **Experimental** — Failed application password authentication on XML-RPC requests no longer logs an empty username. The attempted username is now captured during the `authenticate` filter chain (XML-RPC) with `$_SERVER['PHP_AUTH_USER']` retained as the fallback (REST API), so brute-force attempts against `xmlrpc.php` show which account is being targeted.
+-   "Copy as JSON" and "Copy as Markdown" now include the full event context (request URI, method, user agent, error codes, etc.), so a copied payload is self-contained for triage, support, and bug reports instead of stopping at the message and details. Context is prefetched in the background when the actions menu opens and cached per event, so the event list itself stays lightweight and repeat opens are instant.
+-   IP addresses are now surfaced in the REST API response (and admin row header) for failed application password authentication events, matching how wp-login failures already worked. Previously `ip_addresses` came back empty for these events even though the remote address was recorded in context.
 
 ### 5.27.0 (May 2026)
 

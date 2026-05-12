@@ -61,6 +61,8 @@ class IP_Info_Dropin extends Dropin {
 			'user_login_failed',
 			'user_unknown_login_failed',
 			'user_unknown_logged_in',
+			'user_application_password_login_failed',
+			'user_application_password_unknown_login_failed',
 		);
 
 		// Bail if not correct message key.
