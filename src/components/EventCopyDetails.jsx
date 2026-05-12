@@ -1,8 +1,93 @@
-import { MenuItem } from '@wordpress/components';
-import { useCopyToClipboard } from '@wordpress/compose';
-import { useState } from '@wordpress/element';
+import apiFetch from '@wordpress/api-fetch';
+import { useEffect, useMemo, useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import { info } from '@wordpress/icons';
+import { addQueryArgs } from '@wordpress/url';
+import { CopyMenuItem } from './CopyMenuItem';
+
+// Module-level cache of per-event context payloads. Capped to keep memory bounded
+// in long admin sessions where the user opens the actions menu on many events.
+const EVENT_CONTEXT_CACHE_LIMIT = 50;
+const eventContextCache = new Map();
+const eventContextInFlight = new Map();
+
+function cacheEventContext( eventId, context ) {
+	if (
+		eventContextCache.size >= EVENT_CONTEXT_CACHE_LIMIT &&
+		! eventContextCache.has( eventId )
+	) {
+		eventContextCache.delete( eventContextCache.keys().next().value );
+	}
+	eventContextCache.set( eventId, context );
+}
+
+function fetchEventContext( eventId ) {
+	if ( eventContextInFlight.has( eventId ) ) {
+		return eventContextInFlight.get( eventId );
+	}
+
+	const promise = apiFetch( {
+		path: addQueryArgs( `/simple-history/v1/events/${ eventId }`, {
+			_fields: 'context',
+		} ),
+	} )
+		.then( ( response ) => {
+			const context = response?.context ?? {};
+			cacheEventContext( eventId, context );
+			return context;
+		} )
+		.finally( () => {
+			eventContextInFlight.delete( eventId );
+		} );
+
+	eventContextInFlight.set( eventId, promise );
+
+	return promise;
+}
+
+/**
+ * React hook that returns the event enriched with its `context` payload.
+ *
+ * The list-view fetch deliberately omits `context` to keep payloads small
+ * (context can be many KB per event under Detective Mode). When the actions
+ * dropdown mounts a copy menu item, we fire one fetch in the background so by
+ * the time the user clicks Copy a few hundred ms later, the data is already in
+ * hand and the clipboard write can stay synchronous — which is what keeps the
+ * dropdown open long enough to show the "Copied" feedback.
+ *
+ * @param {Object} event
+ * @return {Object} event with `context` populated when available
+ */
+function useEventWithContext( event ) {
+	const [ context, setContext ] = useState(
+		() => event.context ?? eventContextCache.get( event.id ) ?? null
+	);
+
+	useEffect( () => {
+		if ( context ) {
+			return;
+		}
+
+		let cancelled = false;
+
+		fetchEventContext( event.id )
+			.then( ( fetched ) => {
+				if ( ! cancelled ) {
+					setContext( fetched );
+				}
+			} )
+			.catch( () => {} );
+
+		return () => {
+			cancelled = true;
+		};
+	}, [ event.id, context ] );
+
+	return useMemo(
+		() => ( context ? { ...event, context } : event ),
+		[ event, context ]
+	);
+}
 
 /**
  * Format event details for copying.
@@ -241,82 +326,49 @@ function formatEventAsMarkdown( event ) {
 	return md;
 }
 
-/**
- * Menu Item to copy event details to clipboard.
- *
- * @param {Object} props
- * @param {Object} props.event
- * @return {Object} React element
- */
 export function EventCopyDetails( { event } ) {
-	const copyText = __( 'Copy event message', 'simple-history' );
-	const copiedText = __( 'Event message copied', 'simple-history' );
-	const [ dynamicCopyText, setDynamicCopyText ] = useState( copyText );
-	const formattedDetails = formatEventDetails( event );
-	const ref = useCopyToClipboard( formattedDetails, () => {
-		setDynamicCopyText( copiedText );
-		setTimeout( () => {
-			setDynamicCopyText( copyText );
-		}, 2000 );
-	} );
+	const payload = useMemo( () => formatEventDetails( event ), [ event ] );
 
 	return (
-		<MenuItem icon={ info } ref={ ref }>
-			{ dynamicCopyText }
-		</MenuItem>
+		<CopyMenuItem
+			icon={ info }
+			label={ __( 'Copy event message', 'simple-history' ) }
+			labelCopied={ __( 'Event message copied', 'simple-history' ) }
+			payload={ payload }
+		/>
 	);
 }
 
-/**
- * Menu Item to copy event details (detailed) to clipboard.
- *
- * @param {Object} props
- * @param {Object} props.event
- * @return {Object} React element
- */
 export function EventCopyDetailsDetailed( { event } ) {
-	const copyText = __( 'Copy as Markdown', 'simple-history' );
-	const copiedText = __( 'Copied as Markdown', 'simple-history' );
-
-	const [ dynamicCopyText, setDynamicCopyText ] = useState( copyText );
-	const formattedDetails = formatEventAsMarkdown( event );
-	const ref = useCopyToClipboard( formattedDetails, () => {
-		setDynamicCopyText( copiedText );
-		setTimeout( () => {
-			setDynamicCopyText( copyText );
-		}, 2000 );
-	} );
+	const enriched = useEventWithContext( event );
+	const payload = useMemo(
+		() => formatEventAsMarkdown( enriched ),
+		[ enriched ]
+	);
 
 	return (
-		<MenuItem icon={ info } ref={ ref }>
-			{ dynamicCopyText }
-		</MenuItem>
+		<CopyMenuItem
+			icon={ info }
+			label={ __( 'Copy as Markdown', 'simple-history' ) }
+			labelCopied={ __( 'Copied as Markdown', 'simple-history' ) }
+			payload={ payload }
+		/>
 	);
 }
 
-/**
- * Menu Item to copy the full event as JSON, including all context.
- *
- * @param {Object} props
- * @param {Object} props.event
- * @return {Object} React element
- */
 export function EventCopyDetailsJson( { event } ) {
-	const copyText = __( 'Copy as JSON', 'simple-history' );
-	const copiedText = __( 'Copied as JSON', 'simple-history' );
-
-	const [ dynamicCopyText, setDynamicCopyText ] = useState( copyText );
-	const json = JSON.stringify( event, null, 2 );
-	const ref = useCopyToClipboard( json, () => {
-		setDynamicCopyText( copiedText );
-		setTimeout( () => {
-			setDynamicCopyText( copyText );
-		}, 2000 );
-	} );
+	const enriched = useEventWithContext( event );
+	const payload = useMemo(
+		() => JSON.stringify( enriched, null, 2 ),
+		[ enriched ]
+	);
 
 	return (
-		<MenuItem icon={ info } ref={ ref }>
-			{ dynamicCopyText }
-		</MenuItem>
+		<CopyMenuItem
+			icon={ info }
+			label={ __( 'Copy as JSON', 'simple-history' ) }
+			labelCopied={ __( 'Copied as JSON', 'simple-history' ) }
+			payload={ payload }
+		/>
 	);
 }
