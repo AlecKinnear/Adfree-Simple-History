@@ -70,6 +70,12 @@ class Connectors_Logger extends Logger {
 	 *
 	 * Defer until `init` priority 30, after core registers default connector
 	 * settings (priority 20) so `wp_get_connectors()` returns the full set.
+	 *
+	 * Trade-off: any connector registered at `init` priority 31+ is invisible
+	 * to this snapshot and won't have its API key changes logged. In practice
+	 * connectors register on the earlier `wp_connectors_init` action (which
+	 * fires during core's priority-20 hook), so this is rarely an issue —
+	 * but note the constraint when third-party connectors misbehave.
 	 */
 	public function loaded() {
 		add_action( 'init', array( $this, 'register_connector_hooks' ), 30 );

@@ -210,6 +210,58 @@ class ConnectorsLoggerTest extends \Codeception\TestCase\WPTestCase {
 	}
 
 	/**
+	 * `register_connector_hooks()` should no-op cleanly on WordPress versions
+	 * that pre-date the Connectors API (i.e. when `wp_get_connectors()` is
+	 * absent). On those versions we should bind no hooks and not error.
+	 */
+	public function test_register_connector_hooks_noops_when_connectors_api_missing() {
+		if ( function_exists( 'wp_get_connectors' ) ) {
+			$this->markTestSkipped( 'WordPress runtime exposes wp_get_connectors(); the missing-API path is not reachable here.' );
+		}
+
+		$logger = new Connectors_Logger( Simple_History::get_instance() );
+
+		// Should not throw and should not register any hooks.
+		$logger->register_connector_hooks();
+
+		$reflection = new ReflectionClass( Connectors_Logger::class );
+		$prop       = $reflection->getProperty( 'connectors_by_setting' );
+		$prop->setAccessible( true );
+
+		$this->assertSame( array(), $prop->getValue( $logger ) );
+		$this->assertFalse( has_action( 'delete_option', array( $logger, 'capture_value_before_delete' ) ) );
+		$this->assertFalse( has_action( 'deleted_option', array( $logger, 'handle_deleted_option' ) ) );
+	}
+
+	/**
+	 * When the Connectors API is available, `register_connector_hooks()` should
+	 * populate `connectors_by_setting` from `wp_get_connectors()` and bind the
+	 * global delete hooks (whose binding is the only directly observable side
+	 * effect — the per-setting add/update closures aren't easy to enumerate).
+	 */
+	public function test_register_connector_hooks_binds_delete_hooks_when_connectors_exist() {
+		if ( ! function_exists( 'wp_get_connectors' ) ) {
+			$this->markTestSkipped( 'Connectors API not available on this WordPress version.' );
+		}
+
+		$connectors = wp_get_connectors();
+		if ( empty( $connectors ) ) {
+			$this->markTestSkipped( 'No connectors registered in this test runtime — cannot verify hook binding.' );
+		}
+
+		$logger = new Connectors_Logger( Simple_History::get_instance() );
+		$logger->register_connector_hooks();
+
+		$reflection = new ReflectionClass( Connectors_Logger::class );
+		$prop       = $reflection->getProperty( 'connectors_by_setting' );
+		$prop->setAccessible( true );
+
+		$this->assertNotEmpty( $prop->getValue( $logger ), 'connectors_by_setting should be populated' );
+		$this->assertNotFalse( has_action( 'delete_option', array( $logger, 'capture_value_before_delete' ) ) );
+		$this->assertNotFalse( has_action( 'deleted_option', array( $logger, 'handle_deleted_option' ) ) );
+	}
+
+	/**
 	 * Real end-to-end delete via WordPress: ensure that `delete_option()` on a
 	 * connector setting produces a log entry. This is the path the reviewer
 	 * flagged as broken in the original implementation.
@@ -261,17 +313,24 @@ class ConnectorsLoggerTest extends \Codeception\TestCase\WPTestCase {
 	}
 
 	/**
-	 * Ensure no context value contains the full API key.
+	 * Ensure no context value contains the full API key — neither as the value
+	 * itself nor as a substring of any stored value.
 	 *
 	 * @param array  $context  Context rows.
 	 * @param string $full_key The full key value that must NOT appear.
 	 */
 	private function assert_context_does_not_contain_full_key( array $context, string $full_key ): void {
 		foreach ( $context as $row ) {
-			$this->assertNotEquals(
+			$value = $row['value'] ?? '';
+
+			if ( ! is_string( $value ) ) {
+				continue;
+			}
+
+			$this->assertStringNotContainsString(
 				$full_key,
-				$row['value'] ?? '',
-				sprintf( 'Context key "%s" should not contain the full API key', $row['key'] ?? '' )
+				$value,
+				sprintf( 'Context key "%s" should not contain the full API key as a substring', $row['key'] ?? '' )
 			);
 		}
 	}
