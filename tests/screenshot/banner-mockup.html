@@ -110,9 +110,77 @@
 					0 10px 28px rgba(15, 23, 42, 0.08),
 					0 32px 64px rgba(15, 23, 42, 0.1);
 				overflow: hidden;
-				padding: 22px 28px 22px 28px;
 				display: flex;
 				flex-direction: column;
+			}
+
+			/* Safari-ish browser chrome on top of the card */
+			.browser-chrome {
+				display: flex;
+				align-items: center;
+				gap: 14px;
+				background: linear-gradient(#edeef1, #e5e7eb);
+				border-bottom: 1px solid #d6d9de;
+				padding: 11px 14px;
+				flex: none;
+			}
+			.traffic-lights {
+				display: flex;
+				gap: 7px;
+				flex: none;
+			}
+			.traffic-lights span {
+				width: 12px;
+				height: 12px;
+				border-radius: 50%;
+				display: block;
+			}
+			.traffic-lights .red {
+				background: #ff5f57;
+			}
+			.traffic-lights .yellow {
+				background: #febc2e;
+			}
+			.traffic-lights .green {
+				background: #28c840;
+			}
+			.url-bar {
+				flex: 1;
+				background: #ffffff;
+				border: 1px solid #d6d9de;
+				border-radius: 6px;
+				padding: 5px 12px;
+				display: flex;
+				align-items: center;
+				gap: 7px;
+				font-size: 12px;
+				color: #4b5563;
+				font-family:
+					-apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+				min-width: 0;
+			}
+			.url-bar .lock {
+				width: 11px;
+				height: 11px;
+				color: #6b7280;
+				flex: none;
+			}
+			.url-bar .url {
+				white-space: nowrap;
+				overflow: hidden;
+				text-overflow: ellipsis;
+			}
+			.url-bar .url-domain {
+				color: #111;
+				font-weight: 500;
+			}
+
+			.card-body {
+				padding: 18px 28px 18px 28px;
+				display: flex;
+				flex-direction: column;
+				flex: 1;
+				min-height: 0;
 			}
 			.sh-header {
 				display: flex;
@@ -279,7 +347,30 @@
 
 			<aside class="ui-panel">
 				<div class="ui-card">
-					<header class="sh-header">
+					<div class="browser-chrome">
+						<div class="traffic-lights">
+							<span class="red"></span>
+							<span class="yellow"></span>
+							<span class="green"></span>
+						</div>
+						<div class="url-bar">
+							<svg
+								class="lock"
+								viewBox="0 0 16 16"
+								fill="currentColor"
+							>
+								<path
+									d="M8 1a3 3 0 0 0-3 3v2H4a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V7a1 1 0 0 0-1-1h-1V4a3 3 0 0 0-3-3Zm-2 5V4a2 2 0 0 1 4 0v2H6Z"
+								/>
+							</svg>
+							<span class="url">
+								<span class="url-domain">yoursite.com</span
+								>/wp-admin/admin.php?page=simple_history_admin_menu_page
+							</span>
+						</div>
+					</div>
+					<div class="card-body">
+						<header class="sh-header">
 						<svg viewBox="0 0 256 256" fill="none">
 							<rect
 								width="256"
