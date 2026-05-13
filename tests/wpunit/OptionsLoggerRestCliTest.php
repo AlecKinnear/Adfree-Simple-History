@@ -50,6 +50,13 @@ class OptionsLoggerRestCliTest extends \Codeception\TestCase\WPTestCase {
 		wp_set_current_user( $this->admin_user_id );
 	}
 
+	public function tearDown(): void {
+		// Reset any $_REQUEST values a test may have set so we don't leak
+		// admin-form context into the next test.
+		unset( $_REQUEST['option_page'] );
+		parent::tearDown();
+	}
+
 	public function test_logger_exists_and_is_loaded() {
 		$this->assertNotNull( $this->logger, 'Options_Logger should be instantiated' );
 		$this->assertInstanceOf( Options_Logger::class, $this->logger );
@@ -85,6 +92,39 @@ class OptionsLoggerRestCliTest extends \Codeception\TestCase\WPTestCase {
 			$count_after,
 			'Options_Logger should not log changes from arbitrary code paths (no admin form, no REST settings route, no CLI)'
 		);
+
+		// Restore.
+		update_option( 'blogdescription', $original );
+	}
+
+	/**
+	 * Regression: the wp-admin Settings → General path must keep working.
+	 * It posts `option_page=general` in $_REQUEST; the handler should detect
+	 * the admin form, log the change, and tag it with option_page=general.
+	 */
+	public function test_logs_blogdescription_change_via_admin_form_general() {
+		$_REQUEST['option_page'] = 'general';
+
+		$original = get_option( 'blogdescription' );
+		$new_value = 'Tagline via admin form ' . wp_generate_password( 6, false );
+
+		$count_before = $this->get_options_logger_event_count();
+
+		update_option( 'blogdescription', $new_value );
+
+		$count_after = $this->get_options_logger_event_count();
+
+		$this->assertEquals(
+			$count_before + 1,
+			$count_after,
+			'Admin Settings → General form submit must still log (no regression)'
+		);
+
+		$context = get_latest_context();
+		$this->assert_context_has( $context, '_message_key', 'option_updated' );
+		$this->assert_context_has( $context, 'option', 'blogdescription' );
+		$this->assert_context_has( $context, 'new_value', $new_value );
+		$this->assert_context_has( $context, 'option_page', 'general' );
 
 		// Restore.
 		update_option( 'blogdescription', $original );
@@ -248,6 +288,53 @@ class OptionsLoggerRestCliTest extends \Codeception\TestCase\WPTestCase {
 		// Restore.
 		update_option( 'default_category', $original );
 		wp_delete_term( $new_category_id, 'category' );
+	}
+
+	/**
+	 * WP-CLI: `permalink_structure` lives in the 'permalinks' (plural) page
+	 * group internally, but the admin URL is options-permalink.php (singular).
+	 * Verify the reverse-lookup path normalizes to the singular slug so the
+	 * Open-page link in the log row resolves correctly.
+	 */
+	public function test_logs_permalink_structure_change_via_wp_cli() {
+		if ( ! defined( 'WP_CLI' ) ) {
+			define( 'WP_CLI', true );
+		}
+
+		$original = get_option( 'permalink_structure' );
+
+		// Seed with a structurally-valid permalink so the next update_option
+		// fires `updated_option`. WP's sanitize_option rejects permalink
+		// structures without a tag like %postname%, so a "plain" seed string
+		// gets silently dropped and the second call would fall back to
+		// add_option (which fires `added_option` instead).
+		update_option( 'permalink_structure', '/seed/%postname%/' );
+
+		$new_value = '/cli-test-' . wp_generate_password( 6, false ) . '/%postname%/';
+
+		$count_before = $this->get_options_logger_event_count();
+
+		update_option( 'permalink_structure', $new_value );
+
+		$count_after = $this->get_options_logger_event_count();
+
+		$this->assertEquals( $new_value, get_option( 'permalink_structure' ), 'Option should have been updated' );
+
+		$this->assertEquals(
+			$count_before + 1,
+			$count_after,
+			'Exactly one Options_Logger event should be recorded for a WP-CLI permalink_structure update'
+		);
+
+		$context = get_latest_context();
+		$this->assert_context_has( $context, '_message_key', 'option_updated' );
+		$this->assert_context_has( $context, 'option', 'permalink_structure' );
+		$this->assert_context_has( $context, 'new_value', $new_value );
+		// Plural mapping key must be normalized to the singular admin URL slug.
+		$this->assert_context_has( $context, 'option_page', 'permalink' );
+
+		// Restore.
+		update_option( 'permalink_structure', $original );
 	}
 
 	/**

@@ -74,8 +74,14 @@ class Options_Logger extends Logger {
 	 * @return mixed Passthrough of $response.
 	 */
 	public function on_rest_request_before_callbacks( $response, $handler, $request ) {
-		if ( $request instanceof \WP_REST_Request && strpos( $request->get_route(), '/wp/v2/settings' ) === 0 ) {
-			$this->is_processing_rest_settings_request = true;
+		if ( $request instanceof \WP_REST_Request ) {
+			$route = $request->get_route();
+
+			// Exact route match, or any subroute under /wp/v2/settings/.
+			// Avoids matching unrelated plugin routes like /wp/v2/settings-foo.
+			if ( $route === '/wp/v2/settings' || strpos( $route, '/wp/v2/settings/' ) === 0 ) {
+				$this->is_processing_rest_settings_request = true;
+			}
 		}
 
 		return $response;
