@@ -16,6 +16,17 @@ use function Simple_History\tests\get_latest_context;
  * because the logger only attaches its `updated_option` listener inside
  * the `load-options.php` / `load-options-permalink.php` page-load hooks.
  *
+ * Source gating is preserved: only changes from
+ *  - the wp-admin built-in Settings pages,
+ *  - WP core's /wp/v2/settings REST endpoint, or
+ *  - WP-CLI
+ * should be logged. Arbitrary code paths (plugin admin pages, plugin REST
+ * endpoints, cron, etc.) must NOT produce log rows even for tracked options.
+ *
+ * Test ordering matters: the negative test and the REST tests must run
+ * BEFORE the WP-CLI tests, because defining the WP_CLI constant is
+ * irreversible within a single PHPUnit process.
+ *
  * Run with:
  * docker compose run --rm php-cli vendor/bin/codecept run wpunit OptionsLoggerRestCliTest
  */
@@ -43,6 +54,40 @@ class OptionsLoggerRestCliTest extends \Codeception\TestCase\WPTestCase {
 		$this->assertNotNull( $this->logger, 'Options_Logger should be instantiated' );
 		$this->assertInstanceOf( Options_Logger::class, $this->logger );
 		$this->assertEquals( 'SimpleOptionsLogger', $this->logger->get_slug() );
+	}
+
+	/**
+	 * Negative: a plain update_option() call from a non-admin, non-REST,
+	 * non-CLI context (e.g. a plugin's settings handler or background task)
+	 * must NOT produce a log row, even for a tracked option like
+	 * blogdescription.
+	 *
+	 * IMPORTANT: This test must run before any test that defines WP_CLI,
+	 * otherwise the source gate would treat it as a CLI call.
+	 */
+	public function test_does_not_log_blogdescription_change_from_arbitrary_context() {
+		$this->assertFalse(
+			defined( 'WP_CLI' ) && WP_CLI,
+			'Negative test requires WP_CLI to be undefined — fix the test order if this fails'
+		);
+
+		$original = get_option( 'blogdescription' );
+		$new_value = 'Set by plugin code ' . wp_generate_password( 6, false );
+
+		$count_before = $this->get_options_logger_event_count();
+
+		update_option( 'blogdescription', $new_value );
+
+		$count_after = $this->get_options_logger_event_count();
+
+		$this->assertEquals(
+			$count_before,
+			$count_after,
+			'Options_Logger should not log changes from arbitrary code paths (no admin form, no REST settings route, no CLI)'
+		);
+
+		// Restore.
+		update_option( 'blogdescription', $original );
 	}
 
 	/**
@@ -84,6 +129,41 @@ class OptionsLoggerRestCliTest extends \Codeception\TestCase\WPTestCase {
 	}
 
 	/**
+	 * REST: same path, different option. Verifies the fix isn't accidentally
+	 * tied to blogdescription. WP core exposes the site title as `title` on
+	 * the /wp/v2/settings endpoint, which writes to `blogname`.
+	 */
+	public function test_logs_blogname_change_via_rest_api() {
+		$original = get_option( 'blogname' );
+		$new_value = 'Site title via REST ' . wp_generate_password( 6, false );
+
+		$count_before = $this->get_options_logger_event_count();
+
+		$request = new WP_REST_Request( 'POST', '/wp/v2/settings' );
+		$request->set_param( 'title', $new_value );
+		$response = rest_do_request( $request );
+
+		$this->assertEquals( 200, $response->get_status(), 'REST settings update should succeed' );
+		$this->assertEquals( $new_value, get_option( 'blogname' ), 'Option should have been updated' );
+
+		$count_after = $this->get_options_logger_event_count();
+
+		$this->assertEquals(
+			$count_before + 1,
+			$count_after,
+			'Exactly one Options_Logger event should be recorded for the REST settings update'
+		);
+
+		$context = get_latest_context();
+		$this->assert_context_has( $context, '_message_key', 'option_updated' );
+		$this->assert_context_has( $context, 'option', 'blogname' );
+		$this->assert_context_has( $context, 'new_value', $new_value );
+
+		// Restore.
+		update_option( 'blogname', $original );
+	}
+
+	/**
 	 * WP-CLI: `wp option update blogdescription "..."` bootstraps WordPress
 	 * with `WP_CLI` defined as true, then invokes update_option() from a
 	 * non-admin code path. The logger should still record the change.
@@ -93,8 +173,9 @@ class OptionsLoggerRestCliTest extends \Codeception\TestCase\WPTestCase {
 	 *
 	 * NOTE: PHPUnit cannot un-define a constant after the test. Defining
 	 * WP_CLI here leaks into the rest of the test run, which is acceptable
-	 * because the fix should hook `updated_option` unconditionally (not
-	 * gate behavior on WP_CLI).
+	 * because the fix's source gate only consults WP_CLI to enable logging,
+	 * never to disable it. Tests that rely on WP_CLI being undefined must
+	 * run before this one.
 	 */
 	public function test_logs_blogdescription_change_via_wp_cli() {
 		if ( ! defined( 'WP_CLI' ) ) {
@@ -128,6 +209,45 @@ class OptionsLoggerRestCliTest extends \Codeception\TestCase\WPTestCase {
 
 		// Restore.
 		update_option( 'blogdescription', $original );
+	}
+
+	/**
+	 * WP-CLI: also test an option with a custom context-extension handler
+	 * (default_category triggers add_context_for_option_default_category)
+	 * to verify the per-option enrichment path still runs for CLI changes.
+	 */
+	public function test_logs_default_category_change_via_wp_cli() {
+		if ( ! defined( 'WP_CLI' ) ) {
+			define( 'WP_CLI', true );
+		}
+
+		$original = get_option( 'default_category' );
+
+		// Create a target category to switch to.
+		$new_category_id = $this->factory->category->create( array( 'name' => 'CLI Target Category' ) );
+
+		$count_before = $this->get_options_logger_event_count();
+
+		update_option( 'default_category', $new_category_id );
+
+		$count_after = $this->get_options_logger_event_count();
+
+		$this->assertEquals(
+			$count_before + 1,
+			$count_after,
+			'Exactly one Options_Logger event should be recorded for a WP-CLI default_category update'
+		);
+
+		$context = get_latest_context();
+		$this->assert_context_has( $context, '_message_key', 'option_updated' );
+		$this->assert_context_has( $context, 'option', 'default_category' );
+		$this->assert_context_has( $context, 'new_value', (string) $new_category_id );
+		// Per-option enrichment should resolve the category name.
+		$this->assert_context_has( $context, 'new_category_name', 'CLI Target Category' );
+
+		// Restore.
+		update_option( 'default_category', $original );
+		wp_delete_term( $new_category_id, 'category' );
 	}
 
 	/**
