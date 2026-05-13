@@ -220,9 +220,7 @@ For more information, see our support page [GDPR and Privacy: How Your Data is S
 
 ## Screenshots
 
-1. The log view + it also shows the filter function in use - the log only shows event that
-   are of type post and pages and media (i.e. images & other uploads), and only events
-   initiated by a specific user.
+1. The main log view shows a clear timeline of activity on your site — who did what, when, and from where — alongside a quick stats sidebar with daily activity and the most active users.
 
 2. The feature will make it quick and easy for a user of a site to see what updates other users have done to posts and pages.
 
@@ -240,6 +238,8 @@ For more information, see our support page [GDPR and Privacy: How Your Data is S
 8. Stats and summaries page that gives you a quick overview summary of your site's activity.
 
 9. Email reports: Get a weekly summary of your site's activity delivered straight to your inbox. Enable and configure this feature in the plugin settings.
+
+10. Dashboard widget: A compact view of recent activity appears on your WordPress Dashboard, so you can see at a glance what's been happening on your site without leaving the page you already check every day.
 
 ## Changelog
 

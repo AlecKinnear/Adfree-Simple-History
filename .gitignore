@@ -39,6 +39,7 @@ tests/plugins/*
 !tests/plugins/.gitkeep
 !tests/playwright
 tests/playwright/.auth/
+!tests/screenshot
 
 # Local environment files
 db-export-*.sql

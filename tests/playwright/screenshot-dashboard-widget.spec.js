@@ -1,0 +1,134 @@
+const { test } = require( '@playwright/test' );
+const path = require( 'path' );
+
+// Capture spec for the Simple History dashboard widget at /wp-admin/index.php.
+// Reuses the same fresh WordPress Playground instance and curated events as
+// the main screenshot — so booting + tearing down once gets both shots.
+// Saves to .wordpress-org/screenshot-10.png (the last slot in readme.txt's
+// Screenshots section).
+//
+// Frames the shot to include surrounding dashboard chrome (admin sidebar,
+// neighbouring widgets like "At a Glance" and "Activity") so a wp.org viewer
+// instantly recognises "this lives on the WordPress dashboard you already
+// look at every day" — the killer pitch for the widget feature.
+test.use( {
+	viewport: { width: 1440, height: 900 },
+	deviceScaleFactor: 2,
+} );
+
+test( 'capture dashboard widget from playground', async ( { page } ) => {
+	test.setTimeout( 120_000 );
+
+	const adminUser = process.env.WP_ADMIN_USER || 'admin';
+	const adminPassword = process.env.WP_ADMIN_PASSWORD || 'password';
+
+	await page.goto( '/wp-login.php' );
+	await page.fill( '#user_login', adminUser );
+	await page.fill( '#user_pass', adminPassword );
+	await page.click( '#wp-submit' );
+	await page.waitForURL( /wp-admin/ );
+
+	page.on( 'pageerror', ( err ) =>
+		console.log( 'PAGE-ERR', err.message, '\n', err.stack )
+	);
+	page.on( 'response', ( res ) => {
+		if ( res.status() >= 400 ) {
+			console.log( 'BAD-RESP', res.status(), res.url() );
+		}
+	} );
+
+	// /wp-admin/index.php is the dashboard.
+	await page.goto( '/wp-admin/index.php' );
+
+	// Wait for the widget container itself first (server-rendered), then for
+	// the React event list inside it to finish loading.
+	await page.waitForSelector( '#simple_history_dashboard_widget', {
+		timeout: 60_000,
+	} );
+	await page.waitForSelector(
+		'#simple_history_dashboard_widget .SimpleHistoryLogitems.is-loaded',
+		{ timeout: 60_000 }
+	);
+
+	// Let avatars / attachment thumbs finish loading.
+	await page.waitForTimeout( 2000 );
+
+	// Hide admin notices, Welcome panel, and the "Screen Options" / "Help"
+	// drawers above the widget so the screenshot doesn't include WP-core
+	// chrome that's noise in marketing context.
+	await page.evaluate( () => {
+		document
+			.querySelectorAll(
+				'#wpbody-content .notice, #welcome-panel, #screen-meta, #screen-meta-links'
+			)
+			.forEach( ( el ) => ( el.style.display = 'none' ) );
+
+		// Hide widgets that are visually noisy on a fresh install:
+		// Site Health Status (warns about "potential issues") and WordPress
+		// News (links to wp.org). Keep Quick Draft, At a Glance, and
+		// Activity — those are familiar WP elements every user recognises.
+		document
+			.querySelectorAll( '#dashboard_site_health, #dashboard_primary' )
+			.forEach( ( el ) => ( el.style.display = 'none' ) );
+
+		// Hide any empty widget drop-zones (the "Drag boxes here"
+		// placeholders) so unused dashboard columns don't pull focus away
+		// from the Simple History widget.
+		document
+			.querySelectorAll( '.meta-box-sortables.empty-container' )
+			.forEach( ( el ) => ( el.style.display = 'none' ) );
+
+		// Reorder so Simple History widget appears at the top of the left
+		// column — by default it's the 4th widget. Putting it first means
+		// it's prominently in-frame without needing to scroll.
+		const widget = document.getElementById(
+			'simple_history_dashboard_widget'
+		);
+		if ( widget && widget.parentElement ) {
+			widget.parentElement.insertBefore(
+				widget,
+				widget.parentElement.firstChild
+			);
+		}
+
+		// Hide WordPress's per-widget reorder controls (Move up / Move down /
+		// Toggle panel arrows) on the SH widget — admin chrome that doesn't
+		// belong on a marketing shot.
+		document
+			.querySelectorAll(
+				'#simple_history_dashboard_widget .handle-actions, #simple_history_dashboard_widget .handle-order-higher, #simple_history_dashboard_widget .handle-order-lower, #simple_history_dashboard_widget .handlediv'
+			)
+			.forEach( ( el ) => ( el.style.display = 'none' ) );
+	} );
+
+	// Park cursor + clear hover state on event rows (same dance as the main
+	// screenshot — hover leaves a grey row background otherwise).
+	const viewport = page.viewportSize();
+	await page.mouse.move( 0, viewport.height - 1 );
+	await page.evaluate( () => {
+		document
+			.querySelectorAll(
+				'.SimpleHistoryLogitem, .SimpleHistoryLogitem__senderImage, .SimpleHistoryLogitems'
+			)
+			.forEach( ( el ) => {
+				el.dispatchEvent(
+					new MouseEvent( 'mouseleave', { bubbles: true } )
+				);
+				el.dispatchEvent(
+					new MouseEvent( 'mouseout', { bubbles: true } )
+				);
+			} );
+	} );
+	await page.waitForTimeout( 200 );
+
+	const outputPath = path.join(
+		__dirname,
+		'../../.wordpress-org/screenshot-10.png'
+	);
+
+	// Viewport screenshot — captures the full WP dashboard around the
+	// widget (admin sidebar, At a Glance / Activity / Quick Draft) so the
+	// "this lives on the dashboard you already look at every day" pitch
+	// reads instantly.
+	await page.screenshot( { path: outputPath, fullPage: false } );
+} );

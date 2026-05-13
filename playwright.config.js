@@ -33,5 +33,17 @@ module.exports = defineConfig( {
 			},
 			dependencies: [ 'setup' ],
 		},
+		{
+			// Used by tests/screenshot/run.sh against a fresh WP Playground
+			// instance. No setup dependency — logs in fresh per run. Matches
+			// both the main log screenshot and the dashboard widget screenshot.
+			name: 'screenshot',
+			use: {
+				...devices[ 'Desktop Chrome' ],
+				baseURL:
+					process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:9445',
+			},
+			testMatch: /screenshot-(playground|dashboard-widget)\.spec\.js/,
+		},
 	],
 } );

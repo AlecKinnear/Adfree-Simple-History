@@ -1,12 +1,21 @@
 const { test: setup } = require( '@playwright/test' );
+const fs = require( 'fs' );
 const path = require( 'path' );
 
 const adminUser = process.env.WP_ADMIN_USER || 'claude';
 const adminPassword = process.env.WP_ADMIN_PASSWORD || 'claude';
+const storagePath = path.join( __dirname, '.auth/admin.json' );
 
 // Logs in once and saves the authenticated browser state so all tests can
 // reuse it without logging in again on each run.
 setup( 'authenticate as admin', async ( { page } ) => {
+	// Skip login if storage state already exists — re-running creates noise
+	// in the activity log. Delete .auth/admin.json to force a fresh login.
+	if ( fs.existsSync( storagePath ) ) {
+		setup.skip( true, 'Re-using cached admin session' );
+		return;
+	}
+
 	await page.goto( '/wp-login.php' );
 	await page.fill( '#user_login', adminUser );
 	await page.fill( '#user_pass', adminPassword );
@@ -21,7 +30,5 @@ setup( 'authenticate as admin', async ( { page } ) => {
 		await page.waitForURL( '**/wp-admin/**' );
 	}
 
-	await page.context().storageState( {
-		path: path.join( __dirname, '.auth/admin.json' ),
-	} );
+	await page.context().storageState( { path: storagePath } );
 } );
