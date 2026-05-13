@@ -258,6 +258,7 @@ For more information, see our support page [GDPR and Privacy: How Your Data is S
 -   WordPress 7.0 connector API keys (AI providers, anti-spam, etc.) are now logged when added, changed, or removed. Only the last 4 characters are stored.
 -   "How are AI agents detected?" link in the AI agent attribution tooltip, pointing to a docs article that explains the detection signals.
 -   System Information page (and `wp simple-history db stats` WP-CLI command, and `/wp-json/simple-history/v1/support-info` REST endpoint) now report the charset and collation of each Simple History table. Useful when triaging emoji-related context-drop reports or checking that a site's tables actually upgraded to utf8mb4.
+-   Reminder card on Simple History pages when a premium add-on is installed without a license key entered, so users notice that updates won't arrive until the key is added. Links directly to the license entry field.
 
 **Changed**
 
