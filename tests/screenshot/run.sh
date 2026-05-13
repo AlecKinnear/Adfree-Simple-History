@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Boot a clean WordPress Playground, populate the curated screenshot events
-# via the blueprint, then run Playwright to capture both
-# .wordpress-org/screenshot-1.png (main log view) and
-# .wordpress-org/screenshot-10.png (dashboard widget) in a single run.
-# Tears the playground down on exit.
+# via the blueprint, then run Playwright to capture all wordpress.org marketing
+# screenshots (screenshot-1.png through -11.png) in a single run. Each spec
+# under tests/playwright/screenshot-*.spec.js owns one image. Tears the
+# playground down on exit.
 
 set -euo pipefail
 
@@ -41,14 +41,23 @@ done
 # Give the blueprint runPHP a beat to finish populating events.
 sleep 3
 
-echo "==> Capturing screenshots (main log + dashboard widget)..."
-# --workers=1 forces the two specs to run sequentially against the single
+echo "==> Capturing screenshots (11 specs)..."
+# --workers=1 forces the specs to run sequentially against the single
 # playground instance — parallel runs race on the SQLite log and time out.
 PLAYWRIGHT_BASE_URL="http://127.0.0.1:$PORT" \
 	WP_ADMIN_USER=admin \
 	WP_ADMIN_PASSWORD=password \
 	npx playwright test --project=screenshot --workers=1
 
+if command -v pngquant >/dev/null 2>&1; then
+	echo "==> Optimizing PNGs with pngquant..."
+	# --skip-if-larger keeps the original if compression doesn't help.
+	# --quality=80-95 is near-imperceptible on UI screenshots, ~60-80% smaller.
+	pngquant --skip-if-larger --strip --force --ext .png --quality=80-95 \
+		.wordpress-org/screenshot-*.png || true
+else
+	echo "==> pngquant not installed — skipping optimization (brew install pngquant)"
+fi
+
 echo "==> Done. Updated files:"
-echo "    .wordpress-org/screenshot-1.png"
-echo "    .wordpress-org/screenshot-10.png"
+ls -lh .wordpress-org/screenshot-*.png | awk '{ printf "    %s  %s\n", $5, $NF }'

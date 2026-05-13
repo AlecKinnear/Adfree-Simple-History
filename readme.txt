@@ -220,28 +220,27 @@ For more information, see our support page [GDPR and Privacy: How Your Data is S
 
 ## Screenshots
 
-1. The main log view shows a clear timeline of activity on your site — who did what, when, and from where — alongside a quick stats sidebar with daily activity and the most active users.
+1. The main event log: a clear timeline of who did what on your site, when, and from where — alongside a sidebar with daily activity and your most active users.
 
-2. The feature will make it quick and easy for a user of a site to see what updates other users have done to posts and pages.
+2. Content changes show a full before/after diff, so you can see exactly which words were edited on a post or page — not just that something changed.
 
-3. When users are created or changed you can see details on what have changed.
+3. User events capture every change to a profile: first and last name, display name, website, role, and more — with the previous value preserved next to the new one.
 
-4. Events have context with extra details - Each logged event can include useful rich formatted extra information. For example: a plugin install can contain author info and a the url to the plugin, and an uploaded image can contain a thumbnail of the image.
+4. Every plugin install, activation, and deactivation is logged with author, version, source, and a link to the plugin — so you always know what's running on your site.
 
-5. Click on the IP address of an entry to view the location of for example a failed login attempt.
+5. Click any IP address to see where it came from — hostname, organisation, city, and country — then filter every event from that IP or subnet in one click. Ideal for investigating failed logins.
 
-6. See even more details about a logged event (by clicking on the date and time of the event).
+6. Open any event to see the full details Simple History stores behind it: post IDs, user IDs, before/after values, and every other field — the complete audit trail for each entry.
 
-7. A chart with some quick statistics is available, so you can see the number of events that has been logged each day.
-   A simple way to see any uncommon activity, for example an increased number of logins or similar.
+7. History Insights shows a chart of daily activity, event counts for today, this week, and this month, and your most active users — all next to the log.
 
-8. Stats and summaries page that gives you a quick overview summary of your site's activity.
+8. Stats and Summaries is a full reporting dashboard: breakdowns of users, posts and pages, plugins, media, and more — for any date range you choose.
 
-9. Email reports: Get a weekly summary of your site's activity delivered straight to your inbox. Enable and configure this feature in the plugin settings.
+9. Dashboard widget: a compact view of recent activity right on your WordPress Dashboard, so you see what's happened on your site without leaving the page you already check every day.
 
-10. Dashboard widget: A compact view of recent activity appears on your WordPress Dashboard, so you can see at a glance what's been happening on your site without leaving the page you already check every day.
+10. Weekly email reports keep you informed without logging in. Pick who receives the digest, preview it, or send a test email — all from the settings page.
 
-11. Weekly email report preview: A weekly digest summarising posts, users, logins, plugins, and more — see exactly what subscribers receive in their inbox.
+11. The weekly digest itself: a clean summary of posts, users, logins, plugin changes, and more — delivered straight to your inbox.
 
 ## Changelog
 

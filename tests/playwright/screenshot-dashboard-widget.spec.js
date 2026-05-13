@@ -4,8 +4,9 @@ const path = require( 'path' );
 // Capture spec for the Simple History dashboard widget at /wp-admin/index.php.
 // Reuses the same fresh WordPress Playground instance and curated events as
 // the main screenshot — so booting + tearing down once gets both shots.
-// Saves to .wordpress-org/screenshot-10.png (the last slot in readme.txt's
-// Screenshots section).
+// Saves to .wordpress-org/screenshot-9.png (placed before the two email
+// screenshots so the "where you see your activity" story reads:
+// main log → insights → dashboard widget → email reports → email preview).
 //
 // Frames the shot to include surrounding dashboard chrome (admin sidebar,
 // neighbouring widgets like "At a Glance" and "Activity") so a wp.org viewer
@@ -123,12 +124,41 @@ test( 'capture dashboard widget from playground', async ( { page } ) => {
 
 	const outputPath = path.join(
 		__dirname,
-		'../../.wordpress-org/screenshot-10.png'
+		'../../.wordpress-org/screenshot-9.png'
 	);
 
-	// Viewport screenshot — captures the full WP dashboard around the
-	// widget (admin sidebar, At a Glance / Activity / Quick Draft) so the
-	// "this lives on the dashboard you already look at every day" pitch
-	// reads instantly.
-	await page.screenshot( { path: outputPath, fullPage: false } );
+	// Crop from top-left (0, 0) so all admin chrome — the top bar, admin
+	// sidebar, and "Dashboard" heading — stays in frame. Then extend ~100px
+	// past the widget on the right and bottom so the widget is clearly the
+	// focus without forcing the viewer to take in the rest of an empty
+	// dashboard. The widget itself is the same shape every WP user knows;
+	// the surrounding chrome is what sells "this is on your dashboard".
+	const widget = await page
+		.locator( '#simple_history_dashboard_widget' )
+		.boundingBox();
+
+	if ( ! widget ) {
+		throw new Error( 'Could not measure dashboard widget bounding box' );
+	}
+
+	const viewportSize = page.viewportSize();
+	const pad = 100;
+	const clipWidth = Math.min(
+		viewportSize.width,
+		widget.x + widget.width + pad
+	);
+	const clipHeight = Math.min(
+		viewportSize.height,
+		widget.y + widget.height + pad
+	);
+
+	await page.screenshot( {
+		path: outputPath,
+		clip: {
+			x: 0,
+			y: 0,
+			width: clipWidth,
+			height: clipHeight,
+		},
+	} );
 } );

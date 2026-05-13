@@ -43,7 +43,8 @@ module.exports = defineConfig( {
 				baseURL:
 					process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:9445',
 			},
-			testMatch: /screenshot-(playground|dashboard-widget)\.spec\.js/,
+			testMatch:
+				/screenshot-(playground|dashboard-widget|inline-diff|event-details|user-events|plugin-install|insights-widget|stats-page|email-settings|ip-popover|email-preview)\.spec\.js/,
 		},
 	],
 } );

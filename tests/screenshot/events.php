@@ -83,6 +83,27 @@ if ( ! $robin_id ) {
 	);
 }
 
+// Dee Dee Ramone — Ramones-themed fixture for the user create + edit
+// screenshot. Created in events.php as `deedee` with Douglas Colvin's birth
+// name + URL etc, then a user_updated_profile event below upgrades the
+// fields to her stage persona. Real WP user so the renderer's
+// get_user_by(edited_user_id) call resolves and the row gets a profile link.
+$deedee_id = username_exists( 'deedee' );
+if ( ! $deedee_id ) {
+	$deedee_id = wp_insert_user(
+		[
+			'user_login'   => 'deedee',
+			'user_email'   => 'deedee@ramones.net',
+			'user_pass'    => wp_generate_password( 20, false ),
+			'first_name'   => 'Dee Dee',
+			'last_name'    => 'Ramone',
+			'user_url'     => 'http://www.deedeeramone.com/',
+			'display_name' => 'Dee Dee Ramone',
+			'role'         => 'author',
+		]
+	);
+}
+
 // Extra users — they don't get curated events at the top but show up in
 // historical noise so "Most active users" feels like a real multi-user site.
 $extra_users = [
@@ -135,6 +156,63 @@ if ( $user_logger ) {
 			'created_user_role'       => 'administrator',
 			'send_user_notification'  => 0,
 			'_initiator'              => \Simple_History\Log_Initiators::WP_CLI,
+			'_curated_event'          => '1',
+		]
+	);
+}
+
+// ---------------------------------------------------------------------------
+// Event 4b: Alex created `deedee` as a contributor under her birth name
+// Douglas Colvin, with the welcome email enabled. Paired with the
+// user_updated_profile event below — together they tell the "Simple History
+// captures the full lifecycle of user accounts" story for screenshot-3
+// (Ramones names because they're memorable).
+// ---------------------------------------------------------------------------
+if ( $user_logger ) {
+	$user_logger->info_message(
+		'user_created',
+		[
+			'created_user_id'         => $deedee_id,
+			'created_user_email'      => 'deedee@ramones.net',
+			'created_user_login'      => 'deedee',
+			'created_user_first_name' => 'Douglas',
+			'created_user_last_name'  => 'Colvin',
+			'created_user_url'        => '',
+			'created_user_role'       => 'contributor',
+			'send_user_notification'  => 1,
+			'_user_id'                => $alex_id,
+			'_user_login'             => 'alex',
+			'_user_email'             => 'alex@example.com',
+			'_initiator'              => \Simple_History\Log_Initiators::WP_USER,
+			'_curated_event'          => '1',
+		]
+	);
+}
+
+// ---------------------------------------------------------------------------
+// Event 4c: Alex edited deedee's profile — upgraded role + applied her stage
+// name + set her band URL. Fires right after the create above so the two
+// rows appear stacked for screenshot-3.
+// ---------------------------------------------------------------------------
+if ( $user_logger ) {
+	$user_logger->info_message(
+		'user_updated_profile',
+		[
+			'edited_user_id'         => $deedee_id,
+			'edited_user_login'      => 'deedee',
+			'edited_user_email'      => 'deedee@ramones.net',
+			'user_prev_first_name'   => 'Douglas',
+			'user_new_first_name'    => 'Dee Dee',
+			'user_prev_last_name'    => 'Colvin',
+			'user_new_last_name'     => 'Ramone',
+			'user_prev_user_url'     => '',
+			'user_new_user_url'      => 'http://www.deedeeramone.com/',
+			'user_prev_display_name' => 'Douglas Colvin',
+			'user_new_display_name'  => 'Dee Dee Ramone',
+			'_user_id'               => $alex_id,
+			'_user_login'            => 'alex',
+			'_user_email'            => 'alex@example.com',
+			'_initiator'             => \Simple_History\Log_Initiators::WP_USER,
 		]
 	);
 }
@@ -200,6 +278,79 @@ if ( $plugin_logger ) {
 }
 
 // ---------------------------------------------------------------------------
+// Event 3b: Plugin install — "Yoast SEO" with rich context (description,
+// install source, version, author, URL). Stacked with the activate +
+// deactivate events below to show the full plugin lifecycle.
+// ---------------------------------------------------------------------------
+if ( $plugin_logger ) {
+	$plugin_logger->info_message(
+		'plugin_installed',
+		[
+			'plugin_name'           => 'Yoast SEO',
+			'plugin_slug'           => 'wordpress-seo',
+			'plugin_title'          => 'Yoast SEO',
+			'plugin_description'    => 'The first true all-in-one SEO solution for WordPress, including on-page content analysis, XML sitemaps and much more.',
+			'plugin_author'         => 'Team Yoast',
+			'plugin_url'            => 'https://yoast.com/wordpress/plugins/seo/',
+			'plugin_version'        => '23.7',
+			'plugin_install_source' => 'web',
+			'_user_id'              => $alex_id,
+			'_user_login'           => 'alex',
+			'_user_email'           => 'alex@example.com',
+			'_initiator'            => \Simple_History\Log_Initiators::WP_USER,
+		]
+	);
+}
+
+// ---------------------------------------------------------------------------
+// Event 3c: Plugin activate — Yoast SEO turned on right after install.
+// ---------------------------------------------------------------------------
+if ( $plugin_logger ) {
+	$plugin_logger->info_message(
+		'plugin_activated',
+		[
+			'plugin_name'        => 'Yoast SEO',
+			'plugin_slug'        => 'wordpress-seo',
+			'plugin_title'       => 'Yoast SEO',
+			'plugin_description' => 'The first true all-in-one SEO solution for WordPress, including on-page content analysis, XML sitemaps and much more.',
+			'plugin_author'      => 'Team Yoast',
+			'plugin_url'         => 'https://yoast.com/wordpress/plugins/seo/',
+			'plugin_version'     => '23.7',
+			'_user_id'           => $alex_id,
+			'_user_login'        => 'alex',
+			'_user_email'        => 'alex@example.com',
+			'_initiator'         => \Simple_History\Log_Initiators::WP_USER,
+			'_curated_event'     => '1',
+		]
+	);
+}
+
+// ---------------------------------------------------------------------------
+// Event 3d: Plugin deactivate — the default "Hello Dolly" plugin every WP
+// install ships with, turned off as part of housekeeping. Rounds out the
+// install/activate/deactivate trio for screenshot-4.
+// ---------------------------------------------------------------------------
+if ( $plugin_logger ) {
+	$plugin_logger->info_message(
+		'plugin_deactivated',
+		[
+			'plugin_name'        => 'Hello Dolly',
+			'plugin_slug'        => 'hello-dolly',
+			'plugin_title'       => 'Hello Dolly',
+			'plugin_description' => 'This is not just a plugin, it symbolizes the hope and enthusiasm of an entire generation summed up in two words sung most famously by Louis Armstrong: Hello, Dolly.',
+			'plugin_author'      => 'Matt Mullenweg',
+			'plugin_url'         => 'http://wordpress.org/plugins/hello-dolly/',
+			'plugin_version'     => '1.7.3',
+			'_user_id'           => $alex_id,
+			'_user_login'        => 'alex',
+			'_user_email'        => 'alex@example.com',
+			'_initiator'         => \Simple_History\Log_Initiators::WP_USER,
+			'_curated_event'     => '1',
+		]
+	);
+}
+
+// ---------------------------------------------------------------------------
 // Event 2: Post update with inline title + content diff. The diff is rendered
 // from post_prev_* / post_new_* context-key pairs by Post_Logger.
 // ---------------------------------------------------------------------------
@@ -210,7 +361,7 @@ if ( ! $about_page ) {
 			'post_type'    => 'page',
 			'post_title'   => 'About us',
 			'post_name'    => 'about-us',
-			'post_content' => 'We sell premium t-shirts and hoodies. Visit our store downtown.',
+			'post_content' => 'We design and ship premium organic cotton t-shirts, hoodies, and limited-edition tour merch worldwide. Free shipping on orders over $50.',
 			'post_status'  => 'publish',
 			'post_author'  => $sally_id,
 		]
@@ -229,8 +380,8 @@ if ( $post_logger ) {
 			'post_title'             => 'About us',
 			'post_prev_post_title'   => 'About',
 			'post_new_post_title'    => 'About us',
-			'post_prev_post_content' => 'We sell t-shirts.',
-			'post_new_post_content'  => 'We sell premium t-shirts and hoodies. Visit our store downtown.',
+			'post_prev_post_content' => 'Discount t-shirts and hoodies for our fans.',
+			'post_new_post_content'  => 'Premium organic cotton t-shirts and hoodies for our fans worldwide.',
 			'_user_id'               => $sally_id,
 			'_user_login'            => 'sally',
 			'_user_email'            => 'sally@example.com',

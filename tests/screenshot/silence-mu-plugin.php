@@ -35,16 +35,16 @@ add_filter( 'simple_history/log/do_log/SimpleUserLogger/user_unknown_logged_in',
 add_filter( 'simple_history/log/do_log/SimpleUserLogger/user_logged_out', '__return_false' );
 
 // Mute auto-fired user_created events from blueprint bootstrap (Sally/Alex/
-// Robin/Mike/Jess/Sam — all created in events.php). The curated WP-CLI
-// user_created event uses _initiator=wp_cli, so we let that one through and
-// block the rest.
+// Robin/Mike/Jess/Sam/Deedee — all created in events.php). Curated events
+// explicitly fired by events.php carry `_curated_event => '1'` and are let
+// through.
 add_filter(
 	'simple_history/log/do_log',
 	function ( $do_log, $level, $message, $context, $logger ) {
 		if (
 			$logger->get_slug() === 'SimpleUserLogger'
 			&& ( $context['_message_key'] ?? '' ) === 'user_created'
-			&& ( $context['_initiator'] ?? '' ) !== \Simple_History\Log_Initiators::WP_CLI
+			&& empty( $context['_curated_event'] )
 		) {
 			return false;
 		}
@@ -55,9 +55,23 @@ add_filter(
 );
 
 // Suppress the SimplePluginLogger activate noise from blueprint bootstrap.
-// (plugin_installed is intentionally left enabled — events.php fires a curated
-// WP-CLI install event we want to surface in the screenshot.)
-add_filter( 'simple_history/log/do_log/SimplePluginLogger/plugin_activated', '__return_false' );
+// Curated activate/deactivate events fired from events.php carry the
+// `_curated_event => '1'` marker and are let through.
+add_filter(
+	'simple_history/log/do_log',
+	function ( $do_log, $level, $message, $context, $logger ) {
+		if (
+			$logger->get_slug() === 'SimplePluginLogger'
+			&& in_array( $context['_message_key'] ?? '', [ 'plugin_activated', 'plugin_deactivated' ], true )
+			&& empty( $context['_curated_event'] )
+		) {
+			return false;
+		}
+		return $do_log;
+	},
+	10,
+	5
+);
 
 // Hide the "1 plugin update" bubble in the admin menu — it pulls focus from the
 // event log in the screenshot. Empties the plugin / theme / core update
@@ -105,9 +119,10 @@ add_filter(
 		}
 
 		$presets = [
-			'sally@example.com' => 'avatar-sally.webp',
-			'alex@example.com'  => 'avatar-alex.webp',
-			'robin@example.com' => 'avatar-robin.png',
+			'sally@example.com'  => 'avatar-sally.webp',
+			'alex@example.com'   => 'avatar-alex.webp',
+			'robin@example.com'  => 'avatar-robin.png',
+			'deedee@ramones.net' => 'avatar-deedee.png',
 		];
 
 		if ( ! isset( $presets[ $email ] ) ) {
