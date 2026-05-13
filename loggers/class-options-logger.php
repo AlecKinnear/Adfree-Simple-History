@@ -442,19 +442,65 @@ class Options_Logger extends Logger {
 			return $group;
 		}
 
-		// Fallback: show trimmed old and new values.
+		// Fallback: inline-diff display of old -> new on a single row,
+		// matching the style used by other loggers (e.g. User_Logger).
 		$group = new Event_Details_Group();
+		$item  = new Event_Details_Item( null, __( 'Value', 'simple-history' ) );
 
-		$group->add_items(
-			[
-				( new Event_Details_Item( null, __( 'New value', 'simple-history' ) ) )
-					->set_new_value( $this->excerptify( $new_value ) ),
-				( new Event_Details_Item( null, __( 'Old value', 'simple-history' ) ) )
-					->set_new_value( $this->excerptify( $old_value ) ),
-			] 
-		);
+		$has_new = $new_value !== null && $new_value !== '';
+		$has_old = $old_value !== null && $old_value !== '';
+
+		if ( $has_new && $has_old ) {
+			$item->set_values(
+				$this->excerptify( $new_value ),
+				$this->excerptify( $old_value )
+			);
+		} elseif ( $has_new ) {
+			$item->set_new_value( $this->excerptify( $new_value ) );
+		} elseif ( $has_old ) {
+			$item->set_prev_value( $this->excerptify( $old_value ) );
+		}
+
+		$group->add_item( $item );
 
 		return $group;
+	}
+
+	/**
+	 * Action link to the relevant Settings page for this option event,
+	 * so the admin can jump straight to the page where the change happened.
+	 *
+	 * @param object $row Log row.
+	 * @return array<array{url: string, label: string, action: string}>
+	 */
+	public function get_action_links( $row ) {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			return array();
+		}
+
+		$option_page = $row->context['option_page'] ?? null;
+
+		if ( ! $option_page ) {
+			return array();
+		}
+
+		$page_info = $this->get_option_page_info( $option_page );
+
+		if ( ! is_array( $page_info ) || empty( $page_info['translation'] ) ) {
+			return array();
+		}
+
+		return array(
+			array(
+				'url'    => admin_url( "options-{$option_page}.php" ),
+				'label'  => sprintf(
+					/* translators: %s: Translated WordPress settings page name, e.g. "General", "Permalinks". */
+					__( 'Manage %s settings', 'simple-history' ),
+					$page_info['translation']
+				),
+				'action' => 'edit',
+			),
+		);
 	}
 
 	/**
@@ -1051,10 +1097,19 @@ class Options_Logger extends Logger {
 	/**
 	 * Get option page information array.
 	 *
+	 * Accepts the singular 'permalink' slug (as stored in context) and
+	 * maps it back to the 'permalinks' key used internally so callers
+	 * get the translated page label and not just the raw slug.
+	 *
 	 * @param string $option_page Option page name.
 	 * @return array|false Option page info if found or false if not found.
 	 */
 	protected function get_option_page_info( $option_page ) {
+		// Normalize singular admin URL slug to the plural mapping key.
+		if ( $option_page === 'permalink' ) {
+			$option_page = 'permalinks';
+		}
+
 		$all_options = $this->get_wordpress_built_in_options();
 
 		// Check for option in all option groups.

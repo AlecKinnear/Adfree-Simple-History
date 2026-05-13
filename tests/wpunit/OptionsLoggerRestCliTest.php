@@ -338,6 +338,40 @@ class OptionsLoggerRestCliTest extends \Codeception\TestCase\WPTestCase {
 	}
 
 	/**
+	 * Action link should resolve the stored option_page slug to a single
+	 * "Manage X settings" edit link pointing at the matching options-*.php
+	 * admin URL. Verifies both a standard page (general) and the special
+	 * singular permalink slug.
+	 */
+	public function test_action_links_resolve_settings_page_url() {
+		$row_general          = new stdClass();
+		$row_general->context = array(
+			'_message_key' => 'option_updated',
+			'option_page'  => 'general',
+		);
+
+		$links = $this->logger->get_action_links( $row_general );
+
+		$this->assertIsArray( $links );
+		$this->assertCount( 1, $links, 'Expect exactly one action link per option_updated event' );
+		$this->assertEquals( admin_url( 'options-general.php' ), $links[0]['url'] );
+		$this->assertEquals( 'edit', $links[0]['action'] );
+		$this->assertStringContainsString( 'General', $links[0]['label'] );
+
+		$row_permalink          = new stdClass();
+		$row_permalink->context = array(
+			'_message_key' => 'option_updated',
+			'option_page'  => 'permalink',
+		);
+
+		$links = $this->logger->get_action_links( $row_permalink );
+
+		$this->assertCount( 1, $links );
+		$this->assertEquals( admin_url( 'options-permalink.php' ), $links[0]['url'] );
+		$this->assertStringContainsString( 'Permalinks', $links[0]['label'], 'Singular slug must still resolve to translated plural label' );
+	}
+
+	/**
 	 * Count the number of Options_Logger events currently in the log table.
 	 */
 	private function get_options_logger_event_count(): int {
