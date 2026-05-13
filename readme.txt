@@ -263,6 +263,7 @@ For more information, see our support page [GDPR and Privacy: How Your Data is S
 
 -   `wp simple-history info` now shows "Experimental features: enabled" when experimental features are active. The line is omitted when they are off, so it only surfaces when relevant.
 -   Copy menu items ("Copy event message", "Copy as Markdown", "Copy as JSON", "Copy link to event details") now show a green checkmark and confirmation label for two seconds after copying, making the success state obvious instead of relying on a label change alone.
+-   Options Logger event details show the change inline as a single row (new value → strike-through old value) labeled with the setting name (e.g. "Site Title", "Tagline"), instead of stacked "New value" / "Old value" rows. Adds a "Manage [Page] settings" action link below each event for quick navigation back to the Settings page.
 
 **Fixed**
 
