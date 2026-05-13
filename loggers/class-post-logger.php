@@ -2,6 +2,7 @@
 
 namespace Simple_History\Loggers;
 
+use Simple_History\Event_Details\Event_Details_Container;
 use Simple_History\Event_Details\Event_Details_Group;
 use Simple_History\Event_Details\Event_Details_Group_Diff_Table_Formatter;
 use Simple_History\Event_Details\Event_Details_Item;
@@ -1407,6 +1408,8 @@ class Post_Logger extends Logger {
 			$diff_table_output = '';
 			$has_diff_values   = false;
 
+			$inline_group = new Event_Details_Group();
+
 			foreach ( $context as $key => $val ) {
 
 				// Skip some context keys.
@@ -1468,29 +1471,14 @@ class Post_Logger extends Logger {
 						);
 					}
 				} elseif ( $key_to_diff === 'post_status' ) {
-					$has_diff_values    = true;
-					$label              = __( 'Status', 'simple-history' );
-					$diff_table_output .= sprintf(
-						'<tr>
-							<td>%1$s</td>
-							<td>Changed from %2$s to %3$s</td>
-						</tr>',
-						$this->label_for( $key_to_diff, $label, $context ),
-						esc_html( $post_old_value ),
-						esc_html( $post_new_value )
+					$inline_group->add_item(
+						( new Event_Details_Item( null, __( 'Status', 'simple-history' ) ) )
+							->set_values( $post_new_value, $post_old_value )
 					);
 				} elseif ( $key_to_diff === 'post_date' ) {
-					$has_diff_values = true;
-					$label           = __( 'Publish date', 'simple-history' );
-
-					$diff_table_output .= sprintf(
-						'<tr>
-							<td>%1$s</td>
-							<td>Changed from %2$s to %3$s</td>
-						</tr>',
-						$this->label_for( $key_to_diff, $label, $context ),
-						esc_html( $post_old_value ),
-						esc_html( $post_new_value )
+					$inline_group->add_item(
+						( new Event_Details_Item( null, __( 'Publish date', 'simple-history' ) ) )
+							->set_values( $post_new_value, $post_old_value )
 					);
 				} elseif ( $key_to_diff === 'post_name' ) {
 					$has_diff_values = true;
@@ -1505,51 +1493,30 @@ class Post_Logger extends Logger {
 						helpers::text_diff( $post_old_value, $post_new_value )
 					);
 				} elseif ( $key_to_diff === 'comment_status' ) {
-					$has_diff_values = true;
-					$label           = __( 'Comment status', 'simple-history' );
-
-					$diff_table_output .= sprintf(
-						'<tr>
-							<td>%1$s</td>
-							<td>Changed from %2$s to %3$s</td>
-						</tr>',
-						$this->label_for( $key_to_diff, $label, $context ),
-						esc_html( $post_old_value ),
-						esc_html( $post_new_value )
+					$inline_group->add_item(
+						( new Event_Details_Item( null, __( 'Comment status', 'simple-history' ) ) )
+							->set_values( $post_new_value, $post_old_value )
 					);
 				} elseif ( $key_to_diff === 'post_author' ) {
-					$has_diff_values = true;
-
 					// wp post edit screen uses display_name so we should use it too.
 					if (
 						isset( $context['post_prev_post_author/display_name'] ) &&
 						isset( $context['post_new_post_author/display_name'] )
 					) {
-						$prev_user_display_name = $context['post_prev_post_author/display_name'];
-						$new_user_display_name  = $context['post_new_post_author/display_name'];
+						$prev_display = sprintf(
+							'%1$s (%2$s)',
+							$context['post_prev_post_author/display_name'],
+							$context['post_prev_post_author/user_email'] ?? ''
+						);
+						$new_display  = sprintf(
+							'%1$s (%2$s)',
+							$context['post_new_post_author/display_name'],
+							$context['post_new_post_author/user_email'] ?? ''
+						);
 
-						$prev_user_user_email = $context['post_prev_post_author/user_email'];
-						$new_user_user_email  = $context['post_new_post_author/user_email'];
-
-						$label              = __( 'Author', 'simple-history' );
-						$diff_table_output .= sprintf(
-							'<tr>
-								<td>%1$s</td>
-								<td>%2$s</td>
-							</tr>',
-							$this->label_for( $key_to_diff, $label, $context ),
-							helpers::interpolate(
-								__(
-									'Changed from {prev_user_display_name} ({prev_user_email}) to {new_user_display_name} ({new_user_email})',
-									'simple-history'
-								),
-								array(
-									'prev_user_display_name' => esc_html( $prev_user_display_name ),
-									'prev_user_email' => esc_html( $prev_user_user_email ),
-									'new_user_display_name' => esc_html( $new_user_display_name ),
-									'new_user_email'  => esc_html( $new_user_user_email ),
-								)
-							)
+						$inline_group->add_item(
+							( new Event_Details_Item( null, __( 'Author', 'simple-history' ) ) )
+								->set_values( $new_display, $prev_display )
 						);
 					}
 				} elseif ( $key_to_diff === 'page_template' ) {
@@ -1562,40 +1529,23 @@ class Post_Logger extends Logger {
 					$prev_page_template_name = $context['post_prev_page_template_name'] ?? '';
 					$new_page_template_name  = $context['post_new_page_template_name'] ?? '';
 
-					// If prev och new template is "default" then use that as name.
+					// If prev or new template is "default" then use that as name.
 					if ( $prev_page_template === 'default' && ! $prev_page_template_name ) {
 						$prev_page_template_name = $prev_page_template;
 					} elseif ( $new_page_template === 'default' && ! $new_page_template_name ) {
 						$new_page_template_name = $new_page_template;
 					}
 
-					$message = __(
-						'Changed from {prev_page_template} to {new_page_template}',
-						'simple-history'
-					);
-					if ( $prev_page_template_name && $new_page_template_name ) {
-						$message = __(
-							'Changed from "{prev_page_template_name}" to "{new_page_template_name}"',
-							'simple-history'
-						);
-					}
+					$prev_display = $prev_page_template_name
+						? sprintf( '%1$s (%2$s)', $prev_page_template_name, $prev_page_template )
+						: $prev_page_template;
+					$new_display  = $new_page_template_name
+						? sprintf( '%1$s (%2$s)', $new_page_template_name, $new_page_template )
+						: $new_page_template;
 
-					$label              = __( 'Template', 'simple-history' );
-					$diff_table_output .= sprintf(
-						'<tr>
-							<td>%1$s</td>
-							<td>%2$s</td>
-						</tr>',
-						$this->label_for( $key_to_diff, $label, $context ),
-						helpers::interpolate(
-							$message,
-							array(
-								'prev_page_template'      => '<code>' . esc_html( $prev_page_template ) . '</code>',
-								'new_page_template'       => '<code>' . esc_html( $new_page_template ) . '</code>',
-								'prev_page_template_name' => esc_html( $prev_page_template_name ),
-								'new_page_template_name'  => esc_html( $new_page_template_name ),
-							)
-						)
+					$inline_group->add_item(
+						( new Event_Details_Item( null, __( 'Template', 'simple-history' ) ) )
+							->set_values( $new_display, $prev_display )
 					);
 				} else {
 					$has_diff_values = true;
@@ -1688,7 +1638,21 @@ class Post_Logger extends Logger {
 					'<table class="SimpleHistoryLogitem__keyValueTable">' . $diff_table_output . '</table>';
 			}
 
-			$out .= $diff_table_output;
+			$groups = [];
+
+			if ( ! empty( $inline_group->items ) ) {
+				$groups[] = $inline_group;
+			}
+
+			if ( $diff_table_output !== '' ) {
+				$groups[] = Event_Details_Group::create_raw( $diff_table_output );
+			}
+
+			if ( empty( $groups ) ) {
+				return '';
+			}
+
+			return Event_Details_Container::create_from( $groups );
 		} elseif ( $message_key === 'post_created' ) {
 			// Show initial post content for created posts using Event_Details classes.
 			// The Event Details system will automatically read values from context.

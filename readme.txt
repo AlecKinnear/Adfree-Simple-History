@@ -241,6 +241,8 @@ For more information, see our support page [GDPR and Privacy: How Your Data is S
 
 10. Dashboard widget: A compact view of recent activity appears on your WordPress Dashboard, so you can see at a glance what's been happening on your site without leaving the page you already check every day.
 
+11. Weekly email report preview: A weekly digest summarising posts, users, logins, plugins, and more — see exactly what subscribers receive in their inbox.
+
 ## Changelog
 
 ✨ If you find Simple History useful ✨
@@ -265,6 +267,7 @@ For more information, see our support page [GDPR and Privacy: How Your Data is S
 -   `wp simple-history info` now shows "Experimental features: enabled" when experimental features are active. The line is omitted when they are off, so it only surfaces when relevant.
 -   Copy menu items ("Copy event message", "Copy as Markdown", "Copy as JSON", "Copy link to event details") now show a green checkmark and confirmation label for two seconds after copying, making the success state obvious instead of relying on a label change alone.
 -   Options Logger event details show the change inline as a single row (new value → strike-through old value) labeled with the setting name (e.g. "Site Title", "Tagline"), instead of stacked "New value" / "Old value" rows. Adds a "Manage [Page] settings" action link below each event for quick navigation back to the Settings page.
+-   Post update events expose status, publish date, comment status, author, and page template as structured data in the REST API, "Copy as JSON", and "Copy as Markdown" outputs — previously these fields were only available as prerendered HTML, so external clients had to parse the markup. Admin display for these five fields changes from a stacked table row ("Changed from draft to publish") to an inline pill style ("Status: draft → publish"), matching how user profile changes already render. Title, content, custom field, term, and featured-image diffs still render in the existing table layout.
 
 **Fixed**
 
