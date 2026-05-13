@@ -274,6 +274,7 @@ For more information, see our support page [GDPR and Privacy: How Your Data is S
 -   New installs create history tables as `utf8mb4` (using `$wpdb->get_charset_collate()`), so emoji and other 4-byte UTF-8 characters in event context are preserved instead of silently dropping the entire context row. Existing installs are unchanged; an opt-in conversion path for older tables will follow.
 -   Support info page no longer prints a "no such table: dbstat" database error when `WP_DEBUG` is on and SQLite's optional `dbstat` virtual table isn't available (notably on WordPress Playground).
 -   Built-in WordPress settings changed via the REST API (`POST /wp/v2/settings`) or WP-CLI (`wp option update`) are now logged. Previously the Options Logger only captured changes made through Settings → General/Writing/Reading/Discussion/Media/Permalinks, so automation, scripts, and AI agents could change the site tagline, title, default category, permalinks, and similar settings invisibly.
+-   "Most active users" widget no longer shows nameless entries like "(1)" for users without a display name, and no longer counts anonymous events (WP-CLI, anonymous web users, unknown initiators) or deleted users in the ranking. Users without a display name now fall back to their username.
 
 ### 5.27.0 (May 2026)
 
