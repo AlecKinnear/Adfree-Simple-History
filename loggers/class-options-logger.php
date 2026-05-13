@@ -40,19 +40,59 @@ class Options_Logger extends Logger {
 	}
 
 	/**
+	 * Tracks whether the WP core /wp/v2/settings REST route is being processed.
+	 * Set/cleared via the rest_request_before/after_callbacks filters so the
+	 * `updated_option` handler can tell that a REST settings update is the
+	 * source of the change (vs. an arbitrary plugin REST endpoint).
+	 *
+	 * @var bool
+	 */
+	private $is_processing_rest_settings_request = false;
+
+	/**
 	 * Called when logger is loaded.
 	 */
 	public function loaded() {
-		// When WP posts the options page it's done to options.php or options-permalink.php.
-		add_action( 'load-options.php', array( $this, 'on_load_options_page' ) );
-		add_action( 'load-options-permalink.php', array( $this, 'on_load_options_page' ) );
+		// Hook updated_option unconditionally so REST and WP-CLI calls are
+		// seen too. Source filtering happens inside the handler — see
+		// on_updated_option().
+		add_action( 'updated_option', array( $this, 'on_updated_option' ), 10, 3 );
+
+		// Detect WP core's /wp/v2/settings REST route so its updates are
+		// distinguished from arbitrary plugin REST endpoints.
+		add_filter( 'rest_request_before_callbacks', array( $this, 'on_rest_request_before_callbacks' ), 10, 3 );
+		add_filter( 'rest_request_after_callbacks', array( $this, 'on_rest_request_after_callbacks' ), 10, 3 );
 	}
 
 	/**
-	 * Called when the options pages are loaded.
+	 * Flip the REST settings flag on if the current request targets
+	 * /wp/v2/settings.
+	 *
+	 * @param \WP_REST_Response|\WP_HTTP_Response|\WP_Error|mixed $response Response.
+	 * @param array                                               $handler  Route handler.
+	 * @param \WP_REST_Request                                    $request  Current request.
+	 * @return mixed Passthrough of $response.
 	 */
-	public function on_load_options_page() {
-		add_action( 'updated_option', array( $this, 'on_updated_option' ), 10, 3 );
+	public function on_rest_request_before_callbacks( $response, $handler, $request ) {
+		if ( $request instanceof \WP_REST_Request && strpos( $request->get_route(), '/wp/v2/settings' ) === 0 ) {
+			$this->is_processing_rest_settings_request = true;
+		}
+
+		return $response;
+	}
+
+	/**
+	 * Clear the REST settings flag after the route's callbacks have run.
+	 *
+	 * @param \WP_REST_Response|\WP_HTTP_Response|\WP_Error|mixed $response Response.
+	 * @param array                                               $handler  Route handler.
+	 * @param \WP_REST_Request                                    $request  Current request.
+	 * @return mixed Passthrough of $response.
+	 */
+	public function on_rest_request_after_callbacks( $response, $handler, $request ) {
+		$this->is_processing_rest_settings_request = false;
+
+		return $response;
 	}
 
 	/**
@@ -246,32 +286,60 @@ class Options_Logger extends Logger {
 	}
 
 	/**
-	 * When an option is updated from the options page.
+	 * When a tracked WordPress option is updated from a known source.
+	 *
+	 * Gating, in order:
+	 *  1. Option name must be in the built-in allowlist.
+	 *  2. Source must be one of: wp-admin built-in Settings form, WP core
+	 *     /wp/v2/settings REST endpoint, or WP-CLI. Anything else (a
+	 *     plugin's admin page, a plugin's REST endpoint, cron, etc.) is
+	 *     intentionally ignored to avoid logging every option write in
+	 *     WordPress.
 	 *
 	 * @param string $option Option name.
 	 * @param mixed  $old_value Old value.
 	 * @param mixed  $new_value New value.
 	 */
 	public function on_updated_option( $option, $old_value, $new_value ) {
-		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
-		$option_page = sanitize_text_field( wp_unslash( $_REQUEST['option_page'] ?? '' ) ); // general | discussion | ...
-
-		if ( ! $this->is_wordpress_built_in_options_page( $option_page ) && ! $this->is_form_submitted_from_permalink_page() ) {
+		if ( ! $this->is_built_in_wordpress_options_name( $option ) ) {
 			return;
 		}
 
-		if ( ! $this->is_built_in_wordpress_options_name( $option ) ) {
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		$posted_option_page = sanitize_text_field( wp_unslash( $_REQUEST['option_page'] ?? '' ) );
+		$is_admin_form      = $this->is_wordpress_built_in_options_page( $posted_option_page )
+			|| $this->is_form_submitted_from_permalink_page();
+		$is_rest_settings   = $this->is_processing_rest_settings_request;
+		$is_wp_cli          = defined( 'WP_CLI' ) && WP_CLI;
+
+		if ( ! $is_admin_form && ! $is_rest_settings && ! $is_wp_cli ) {
+			return;
+		}
+
+		// Derive option_page: admin form posts it directly; permalink form
+		// is a special case; REST/CLI fall back to the reverse mapping from
+		// option name -> page slug.
+		if ( $posted_option_page && $this->is_wordpress_built_in_options_page( $posted_option_page ) ) {
+			$option_page = $posted_option_page;
+		} elseif ( $this->is_form_submitted_from_permalink_page() ) {
+			$option_page = 'permalink';
+		} else {
+			$option_page = $this->get_option_page_for_option_name( $option );
+
+			// Normalize plural mapping key to the singular admin URL slug
+			// (options-permalink.php).
+			if ( $option_page === 'permalinks' ) {
+				$option_page = 'permalink';
+			}
+		}
+
+		if ( ! $option_page ) {
 			return;
 		}
 
 		// If new value is null then store as empty string.
 		if ( is_null( $new_value ) ) {
 			$new_value = '';
-		}
-
-		// Add "option" page manually for permalink screen.
-		if ( $this->is_form_submitted_from_permalink_page() ) {
-			$option_page = 'permalink';
 		}
 
 		$context = [
@@ -371,12 +439,14 @@ class Options_Logger extends Logger {
 		// Fallback: show trimmed old and new values.
 		$group = new Event_Details_Group();
 
-		$group->add_items( [
-			( new Event_Details_Item( null, __( 'New value', 'simple-history' ) ) )
-				->set_new_value( $this->excerptify( $new_value ) ),
-			( new Event_Details_Item( null, __( 'Old value', 'simple-history' ) ) )
-				->set_new_value( $this->excerptify( $old_value ) ),
-		] );
+		$group->add_items(
+			[
+				( new Event_Details_Item( null, __( 'New value', 'simple-history' ) ) )
+					->set_new_value( $this->excerptify( $new_value ) ),
+				( new Event_Details_Item( null, __( 'Old value', 'simple-history' ) ) )
+					->set_new_value( $this->excerptify( $old_value ) ),
+			] 
+		);
 
 		return $group;
 	}
@@ -914,6 +984,25 @@ class Options_Logger extends Logger {
 		);
 
 		return $output;
+	}
+
+	/**
+	 * Reverse-map a built-in option name to the slug of the settings page
+	 * it belongs to. Used when no admin form posts `option_page` (REST and
+	 * WP-CLI paths).
+	 *
+	 * @param string $option_name Option name.
+	 * @return string|null Page slug (e.g. 'general', 'permalinks'), or null
+	 *                     if the option isn't tracked.
+	 */
+	protected function get_option_page_for_option_name( $option_name ) {
+		foreach ( $this->get_wordpress_built_in_options() as $page_slug => $page_info ) {
+			if ( array_key_exists( $option_name, $page_info['options'] ) ) {
+				return $page_slug;
+			}
+		}
+
+		return null;
 	}
 
 	/**
