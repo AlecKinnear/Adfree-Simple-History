@@ -445,7 +445,7 @@ class Options_Logger extends Logger {
 		// Fallback: inline-diff display of old -> new on a single row,
 		// matching the style used by other loggers (e.g. User_Logger).
 		$group = new Event_Details_Group();
-		$item  = new Event_Details_Item( null, __( 'Value', 'simple-history' ) );
+		$item  = new Event_Details_Item( null, $this->get_inline_diff_label( $option ) );
 
 		$has_new = $new_value !== null && $new_value !== '';
 		$has_old = $old_value !== null && $old_value !== '';
@@ -689,7 +689,7 @@ class Options_Logger extends Logger {
 		}
 
 		if ( $formatted_new || $formatted_old ) {
-			$item = new Event_Details_Item( null, __( 'Value', 'simple-history' ) );
+			$item = new Event_Details_Item( null, $this->get_inline_diff_label( $option ) );
 			if ( $formatted_new && $formatted_old ) {
 				$item->set_values( $formatted_new, $formatted_old );
 			} elseif ( $formatted_new ) {
@@ -872,7 +872,7 @@ class Options_Logger extends Logger {
 		}
 
 		$group = new Event_Details_Group();
-		$item  = new Event_Details_Item( null, __( 'Value', 'simple-history' ) );
+		$item  = new Event_Details_Item( null, $this->get_inline_diff_label( $option ) );
 
 		if ( $new_category_name && $old_category_name ) {
 			$item->set_values( $new_category_name, $old_category_name );
@@ -920,7 +920,7 @@ class Options_Logger extends Logger {
 
 		$group = new Event_Details_Group();
 		$group->add_item(
-			( new Event_Details_Item( null, __( 'Value', 'simple-history' ) ) )
+			( new Event_Details_Item( null, $this->get_inline_diff_label( $option ) ) )
 				->set_values(
 					$wp_locale->get_weekday( $new_value ),
 					$wp_locale->get_weekday( $old_value )
@@ -953,7 +953,7 @@ class Options_Logger extends Logger {
 
 		$group = new Event_Details_Group();
 		$group->add_item(
-			( new Event_Details_Item( null, __( 'Value', 'simple-history' ) ) )
+			( new Event_Details_Item( null, $this->get_inline_diff_label( $option ) ) )
 				->set_values( $new_display, $old_display )
 		);
 
@@ -1095,6 +1095,25 @@ class Options_Logger extends Logger {
 	}
 
 	/**
+	 * Return the user-friendly label to use as the inline diff title for
+	 * an option event — the option's translated name (e.g. "Site Title",
+	 * "Tagline", "Update Services"). Falls back to a generic "Value" label
+	 * for options without a translation entry.
+	 *
+	 * @param string $option Option name.
+	 * @return string Translated option name, or "Value" fallback.
+	 */
+	protected function get_inline_diff_label( $option ) {
+		$info = $this->get_option_info( $option );
+
+		if ( is_array( $info ) && ! empty( $info['translation'] ) ) {
+			return $info['translation'];
+		}
+
+		return __( 'Value', 'simple-history' );
+	}
+
+	/**
 	 * Get option page information array.
 	 *
 	 * Accepts the singular 'permalink' slug (as stored in context) and
@@ -1154,7 +1173,7 @@ class Options_Logger extends Logger {
 
 				$group = new Event_Details_Group();
 				$group->add_item(
-					( new Event_Details_Item( null, __( 'Value', 'simple-history' ) ) )
+					( new Event_Details_Item( null, $this->get_inline_diff_label( $option_name ) ) )
 						->set_values( $new_display, $old_display )
 				);
 				return $group;
