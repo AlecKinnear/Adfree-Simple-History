@@ -1,5 +1,6 @@
 const { test } = require( '@playwright/test' );
 const path = require( 'path' );
+const { loginAdmin, hideAdminNotices } = require( './screenshot-helpers' );
 
 const SIMPLE_HISTORY_PAGE =
 	'/wp-admin/admin.php?page=simple_history_admin_menu_page';
@@ -15,9 +16,6 @@ test.use( {
 
 test( 'capture IP geolocation popover from playground', async ( { page } ) => {
 	test.setTimeout( 120_000 );
-
-	const adminUser = process.env.WP_ADMIN_USER || 'admin';
-	const adminPassword = process.env.WP_ADMIN_PASSWORD || 'password';
 
 	// Mock ipinfo.io with realistic-looking data for the failed-login IP.
 	// 203.0.113.42 is reserved-for-docs in real life, so we make up an
@@ -41,15 +39,7 @@ test( 'capture IP geolocation popover from playground', async ( { page } ) => {
 		} );
 	} );
 
-	await page.goto( '/wp-login.php' );
-	await page.fill( '#user_login', adminUser );
-	await page.fill( '#user_pass', adminPassword );
-	await page.click( '#wp-submit' );
-	await page.waitForURL( /wp-admin/ );
-
-	page.on( 'pageerror', ( err ) =>
-		console.log( 'PAGE-ERR', err.message, '\n', err.stack )
-	);
+	await loginAdmin( page );
 
 	await page.goto( SIMPLE_HISTORY_PAGE );
 	await page.waitForSelector( '.SimpleHistoryLogitems.is-loaded', {
@@ -57,11 +47,7 @@ test( 'capture IP geolocation popover from playground', async ( { page } ) => {
 	} );
 	await page.waitForTimeout( 2000 );
 
-	await page.evaluate( () => {
-		document
-			.querySelectorAll( '#wpbody-content .notice' )
-			.forEach( ( el ) => ( el.style.display = 'none' ) );
-	} );
+	await hideAdminNotices( page );
 
 	// Click the IP address button — it lives inside the failed-login row.
 	const ipButton = page

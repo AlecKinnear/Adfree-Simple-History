@@ -122,7 +122,7 @@ add_filter(
 			'sally@example.com'  => 'avatar-sally.webp',
 			'alex@example.com'   => 'avatar-alex.webp',
 			'robin@example.com'  => 'avatar-robin.png',
-			'deedee@ramones.net' => 'avatar-deedee.png',
+			'deedee@ramones.net' => 'avatar-robin.png',
 		];
 
 		if ( ! isset( $presets[ $email ] ) ) {

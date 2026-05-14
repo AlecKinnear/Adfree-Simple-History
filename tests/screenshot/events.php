@@ -213,6 +213,7 @@ if ( $user_logger ) {
 			'_user_login'            => 'alex',
 			'_user_email'            => 'alex@example.com',
 			'_initiator'             => \Simple_History\Log_Initiators::WP_USER,
+			'_curated_event'         => '1',
 		]
 	);
 }

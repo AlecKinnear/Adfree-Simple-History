@@ -1,5 +1,6 @@
 const { test } = require( '@playwright/test' );
 const path = require( 'path' );
+const { loginAdmin, resetHoverState } = require( './screenshot-helpers' );
 
 // Capture spec for the Simple History dashboard widget at /wp-admin/index.php.
 // Reuses the same fresh WordPress Playground instance and curated events as
@@ -20,18 +21,7 @@ test.use( {
 test( 'capture dashboard widget from playground', async ( { page } ) => {
 	test.setTimeout( 120_000 );
 
-	const adminUser = process.env.WP_ADMIN_USER || 'admin';
-	const adminPassword = process.env.WP_ADMIN_PASSWORD || 'password';
-
-	await page.goto( '/wp-login.php' );
-	await page.fill( '#user_login', adminUser );
-	await page.fill( '#user_pass', adminPassword );
-	await page.click( '#wp-submit' );
-	await page.waitForURL( /wp-admin/ );
-
-	page.on( 'pageerror', ( err ) =>
-		console.log( 'PAGE-ERR', err.message, '\n', err.stack )
-	);
+	await loginAdmin( page );
 	page.on( 'response', ( res ) => {
 		if ( res.status() >= 400 ) {
 			console.log( 'BAD-RESP', res.status(), res.url() );
@@ -102,25 +92,7 @@ test( 'capture dashboard widget from playground', async ( { page } ) => {
 			.forEach( ( el ) => ( el.style.display = 'none' ) );
 	} );
 
-	// Park cursor + clear hover state on event rows (same dance as the main
-	// screenshot — hover leaves a grey row background otherwise).
-	const viewport = page.viewportSize();
-	await page.mouse.move( 0, viewport.height - 1 );
-	await page.evaluate( () => {
-		document
-			.querySelectorAll(
-				'.SimpleHistoryLogitem, .SimpleHistoryLogitem__senderImage, .SimpleHistoryLogitems'
-			)
-			.forEach( ( el ) => {
-				el.dispatchEvent(
-					new MouseEvent( 'mouseleave', { bubbles: true } )
-				);
-				el.dispatchEvent(
-					new MouseEvent( 'mouseout', { bubbles: true } )
-				);
-			} );
-	} );
-	await page.waitForTimeout( 200 );
+	await resetHoverState( page );
 
 	const outputPath = path.join(
 		__dirname,

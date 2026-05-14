@@ -65,9 +65,18 @@ if command -v pngquant >/dev/null 2>&1; then
 	echo "==> Optimizing PNGs with pngquant..."
 	# --skip-if-larger keeps the original if compression doesn't help.
 	# --quality=80-95 is near-imperceptible on UI screenshots, ~60-80% smaller.
+	# Exit 99 means quality dropped below the floor — keep the original.
+	# Anything else (real failure: missing file, bad PNG, OOM) is surfaced.
+	set +e
 	pngquant --skip-if-larger --strip --force --ext .png --quality=80-95 \
 		.wordpress-org/screenshot-*.png \
-		.wordpress-org/banner-*.png || true
+		.wordpress-org/banner-*.png
+	rc=$?
+	set -e
+	if [ "$rc" -ne 0 ] && [ "$rc" -ne 99 ]; then
+		echo "ERROR: pngquant exited with status $rc"
+		exit "$rc"
+	fi
 else
 	echo "==> pngquant not installed — skipping optimization (brew install pngquant)"
 fi
