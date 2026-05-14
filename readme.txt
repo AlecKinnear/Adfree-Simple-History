@@ -277,6 +277,7 @@ For more information, see our support page [GDPR and Privacy: How Your Data is S
 -   Support info page no longer prints a "no such table: dbstat" database error when `WP_DEBUG` is on and SQLite's optional `dbstat` virtual table isn't available (notably on WordPress Playground).
 -   Built-in WordPress settings changed via the REST API (`POST /wp/v2/settings`) or WP-CLI (`wp option update`) are now logged. Previously the Options Logger only captured changes made through Settings → General/Writing/Reading/Discussion/Media/Permalinks, so automation, scripts, and AI agents could change the site tagline, title, default category, permalinks, and similar settings invisibly.
 -   "Most active users" widget no longer shows nameless entries like "(1)" for users without a display name, and no longer counts anonymous events (WP-CLI, anonymous web users, unknown initiators) or deleted users in the ranking. Users without a display name now fall back to their username.
+-   Redirect loops in wp-admin for low-privilege users. A legacy-URL redirect intended only for the old `/wp-admin/index.php?page=simple_history_page` bookmark was also firing for unrelated access-denied events on the dashboard, which could send users in circles. Thanks to [@freshembassy](https://github.com/freshembassy) for the detailed report. [#639](https://github.com/bonny/WordPress-Simple-History/issues/639)
 
 ### 5.27.0 (May 2026)
 

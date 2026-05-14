@@ -322,8 +322,15 @@ class Admin_Pages extends Service {
 		$page    = sanitize_text_field( wp_unslash( $_GET['page'] ?? '' ) );
 		$pagenow = $GLOBALS['pagenow'] ?? '';
 
-		// Bail if not correct page.
-		if ( $page !== 'simple_history_page' && $pagenow !== 'index.php' ) {
+		// Only act on the legacy URL `/wp-admin/index.php?page=simple_history_page`.
+		// Both the page slug and pagenow must match — otherwise the hook fires
+		// for unrelated admin_page_access_denied events (issue #639).
+		if ( $page !== 'simple_history_page' || $pagenow !== 'index.php' ) {
+			return;
+		}
+
+		// Don't redirect to a page the user can't access — would loop.
+		if ( ! current_user_can( Helpers::get_view_history_capability() ) ) {
 			return;
 		}
 
