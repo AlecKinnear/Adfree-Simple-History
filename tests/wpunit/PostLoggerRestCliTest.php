@@ -140,6 +140,43 @@ class PostLoggerRestCliTest extends \Codeception\TestCase\WPTestCase {
 	}
 
 	/**
+	 * WP-CLI: wp_insert_post() must produce a post_created log row.
+	 *
+	 * Regression test for the bug where `wp post create` was silently dropped:
+	 * on_wp_after_insert_post bailed for !$update, and on_transition_post_status
+	 * bails for WP-CLI to avoid double-logging — leaving no logging path.
+	 */
+	public function test_logs_post_create_via_wp_cli() {
+		if ( ! defined( 'WP_CLI' ) ) {
+			define( 'WP_CLI', true );
+		}
+
+		$count_before = $this->get_event_count();
+
+		$post_id = wp_insert_post( array(
+			'post_title'   => 'CLI created post',
+			'post_status'  => 'publish',
+			'post_content' => 'content from cli create',
+		) );
+
+		$this->assertIsInt( $post_id );
+		$this->assertGreaterThan( 0, $post_id );
+
+		$this->assertEquals(
+			$count_before + 1,
+			$this->get_event_count(),
+			'WP-CLI wp_insert_post() must produce exactly one log row'
+		);
+
+		$row = get_latest_row();
+		$this->assertEquals( 'SimplePostLogger', $row['logger'] );
+
+		$context = get_latest_context();
+		$this->assert_context_has( $context, '_message_key', 'post_created' );
+		$this->assert_context_has( $context, 'post_title', 'CLI created post' );
+	}
+
+	/**
 	 * WP-CLI: the logged event must include a content diff (prev vs new).
 	 *
 	 * Currently FAILS — save_prev_post_data() is never called for WP-CLI, so

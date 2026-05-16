@@ -383,7 +383,7 @@ class Post_Logger extends Logger {
 	}
 
 	/**
-	 * Log a post update made via WP-CLI. Mirrors on_rest_after_insert.
+	 * Log a post create or update made via WP-CLI. Mirrors on_rest_after_insert.
 	 *
 	 * @param int           $post_id     ID of the saved post.
 	 * @param \WP_Post      $post        The saved post object.
@@ -395,10 +395,6 @@ class Post_Logger extends Logger {
 			return;
 		}
 
-		if ( ! $update ) {
-			return;
-		}
-
 		if ( ! $post instanceof \WP_Post ) {
 			return;
 		}
@@ -407,10 +403,18 @@ class Post_Logger extends Logger {
 			return;
 		}
 
-		$old_post       = $this->old_post_data[ $post->ID ]['post_data'] ?? null;
-		$old_post_meta  = $this->old_post_data[ $post->ID ]['post_meta'] ?? null;
-		$old_post_terms = $this->old_post_data[ $post->ID ]['post_terms'] ?? null;
-		$old_status     = $old_post ? $old_post->post_status : null;
+		if ( $update ) {
+			$old_post       = $this->old_post_data[ $post->ID ]['post_data'] ?? null;
+			$old_post_meta  = $this->old_post_data[ $post->ID ]['post_meta'] ?? null;
+			$old_post_terms = $this->old_post_data[ $post->ID ]['post_terms'] ?? null;
+			$old_status     = $old_post ? $old_post->post_status : null;
+		} else {
+			$old_post       = null;
+			$old_post_meta  = null;
+			$old_post_terms = null;
+			// 'new' is WordPress's status transition placeholder when no prior post exists.
+			$old_status = 'new';
+		}
 
 		$args = array(
 			'new_post'       => $post,
@@ -795,9 +799,10 @@ class Post_Logger extends Logger {
 		);
 
 		// Check if this is a post being created.
-		// This includes both manual creation (auto-draft -> draft/publish)
-		// and auto-save creation (auto-draft -> draft).
-		$is_post_created = $old_status === 'auto-draft' && ( $new_status !== 'auto-draft' && $new_status !== 'inherit' );
+		// This includes manual creation (auto-draft -> draft/publish), auto-save
+		// creation (auto-draft -> draft), and WP-CLI / direct wp_insert_post()
+		// creation which transitions from 'new' to the final status.
+		$is_post_created = ( $old_status === 'auto-draft' || $old_status === 'new' ) && ( $new_status !== 'auto-draft' && $new_status !== 'inherit' );
 
 		if ( $is_post_created ) {
 			// Post created.
