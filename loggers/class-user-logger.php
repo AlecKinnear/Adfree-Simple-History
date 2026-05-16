@@ -668,10 +668,17 @@ class User_Logger extends Logger {
 			return $data;
 		}
 
-		$current_screen = helpers::get_current_screen();
+		// Only capture in contexts where changes are intentional: admin user screens,
+		// REST API, or WP-CLI. Arbitrary wp_update_user() calls from cron or plugins
+		// are excluded to avoid noise.
+		$is_admin_user_screen = false;
 
-		// Bail if we are not on the user-edit screen (edit other user) or profile screen (edit own user).
-		if ( ! in_array( $current_screen->id, array( 'user-edit', 'profile' ), true ) ) {
+		if ( is_admin() ) {
+			$current_screen       = helpers::get_current_screen();
+			$is_admin_user_screen = in_array( $current_screen->id, array( 'user-edit', 'profile' ), true );
+		}
+
+		if ( ! $is_admin_user_screen && ! Helpers::is_rest_request() && ! Helpers::is_wp_cli() ) {
 			return $data;
 		}
 

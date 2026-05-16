@@ -100,6 +100,11 @@ class Post_Logger extends Logger {
 		// Add rest hooks late to increase chance of getting all registered post types.
 		add_action( 'init', array( $this, 'add_rest_hooks' ), 99 );
 
+		// WP-CLI post update path. on_transition_post_status bails for WP-CLI to avoid
+		// double-logging; these two hooks handle the prev/new snapshot + log instead.
+		add_action( 'pre_post_update', array( $this, 'on_pre_post_update' ), 10, 1 );
+		add_action( 'wp_after_insert_post', array( $this, 'on_wp_after_insert_post' ), 10, 4 );
+
 		add_action( 'update_option_page_on_front', array( $this, 'on_update_option_page_on_front' ), 10, 2 );
 		add_action( 'update_option_page_for_posts', array( $this, 'on_update_option_page_for_posts' ), 10, 2 );
 
@@ -357,13 +362,78 @@ class Post_Logger extends Logger {
 	}
 
 	/**
+	 * Capture prev post state for WP-CLI updates.
+	 *
+	 * Admin path captures prev state in on_admin_action_editpost_save_prev_post()
+	 * — pre_post_update would see new values there because custom fields are
+	 * written via a separate AJAX call before the form submit.
+	 *
+	 * @param int $post_ID The post ID being updated.
+	 */
+	public function on_pre_post_update( $post_ID ) {
+		if ( is_admin() ) {
+			return;
+		}
+
+		if ( ! Helpers::is_wp_cli() ) {
+			return;
+		}
+
+		$this->save_prev_post_data( $post_ID );
+	}
+
+	/**
+	 * Log a post update made via WP-CLI. Mirrors on_rest_after_insert.
+	 *
+	 * @param int           $post_id     ID of the saved post.
+	 * @param \WP_Post      $post        The saved post object.
+	 * @param bool          $update      True when updating, false when creating.
+	 * @param \WP_Post|null $post_before The post before the update, or null for new posts.
+	 */
+	public function on_wp_after_insert_post( $post_id, $post, $update, $post_before ) {
+		if ( ! Helpers::is_wp_cli() ) {
+			return;
+		}
+
+		if ( ! $update ) {
+			return;
+		}
+
+		if ( ! $post instanceof \WP_Post ) {
+			return;
+		}
+
+		if ( ! $this->ok_to_log_post_posttype( $post ) ) {
+			return;
+		}
+
+		$old_post       = $this->old_post_data[ $post->ID ]['post_data'] ?? null;
+		$old_post_meta  = $this->old_post_data[ $post->ID ]['post_meta'] ?? null;
+		$old_post_terms = $this->old_post_data[ $post->ID ]['post_terms'] ?? null;
+		$old_status     = $old_post ? $old_post->post_status : null;
+
+		$args = array(
+			'new_post'       => $post,
+			'new_post_meta'  => get_post_custom( $post->ID ),
+			'new_post_terms' => wp_get_object_terms( $post->ID, get_object_taxonomies( $post->post_type ) ),
+			'old_post'       => $old_post,
+			'old_post_meta'  => $old_post_meta,
+			'old_post_terms' => $old_post_terms,
+			'old_status'     => $old_status,
+		);
+
+		$this->maybe_log_post_change( $args );
+	}
+
+	/**
 	 * Get and store old info about a post that is going to be edited.
 	 * Needed to later compare old data with new data, to detect differences.
 	 * This function is called on edit screen but before post edits are saved.
 	 *
-	 * Can't use the regular filters like "pre_post_update" because custom fields are already written by then.
+	 * Can't use the regular filters like "pre_post_update" because custom fields are already written by then
+	 * when editing via the classic admin form (custom fields are saved via AJAX before the form submit).
 	 *
-	 * This functions is not fird when using the block editor, then we use the REST API hooks instead.
+	 * This function is not fired when using the block editor — REST API hooks are used instead.
 	 *
 	 * @since 2.0.29
 	 */
@@ -655,6 +725,11 @@ class Post_Logger extends Logger {
 			$ok_to_log = true;
 		}
 
+		// Accept calls from WP-CLI.
+		if ( Helpers::is_wp_cli() ) {
+			$ok_to_log = true;
+		}
+
 		// When a post is transitioned from future to publish, it's done by a cron job,
 		// and is_admin() is false. It's called from filter "publish_future_post".
 		// Logging is done from another function, we just make double sure to not log it here.
@@ -824,6 +899,11 @@ class Post_Logger extends Logger {
 		// Autosaves from Gutenberg use the REST API but we want to log when they
 		// transition from auto-draft to draft (which represents post creation).
 		if ( $isRestApiRequest && ! $isAutosaveCreatingPost ) {
+			return;
+		}
+
+		// Bail for WP-CLI — handled by on_wp_after_insert_post to avoid double-logging.
+		if ( Helpers::is_wp_cli() ) {
 			return;
 		}
 

@@ -90,6 +90,12 @@ class Privacy_Logger extends Logger {
 		// We only add the filters when the privacy page is loaded.
 		add_action( 'load-options-privacy.php', array( $this, 'on_load_privacy_page' ) );
 
+		// Capture privacy page updates outside wp-admin (WP-CLI, REST API).
+		// Admin path uses on_load_privacy_page to distinguish create vs set via $_POST.
+		// Hook both update (existing option) and add (option doesn't exist yet) variants.
+		add_action( 'update_option_wp_page_for_privacy_policy', array( $this, 'on_update_option_privacy_policy_page_non_admin' ), 10, 3 );
+		add_action( 'add_option_wp_page_for_privacy_policy', array( $this, 'on_add_option_privacy_policy_page_non_admin' ), 10, 2 );
+
 		// Add filters to detect data export related functions.
 		// We only add the filters when the tools page for export personal data is loaded.
 		add_action( 'load-export-personal-data.php', array( $this, 'on_load_export_personal_data_page' ) );
@@ -448,9 +454,71 @@ class Privacy_Logger extends Logger {
 	}
 
 	/**
+	 * Log a privacy page update from a non-admin context (WP-CLI, REST API).
+	 * Admin updates are handled by on_load_privacy_page() which distinguishes
+	 * create vs set via $_POST['action'].
+	 *
+	 * Fires from update_option_wp_page_for_privacy_policy (option already exists).
+	 *
+	 * @param mixed  $old_value Previous option value.
+	 * @param mixed  $value     New option value (the page ID).
+	 * @param string $option    Option name.
+	 */
+	public function on_update_option_privacy_policy_page_non_admin( $old_value, $value, $option ) {
+		if ( is_admin() ) {
+			return;
+		}
+
+		$this->log_privacy_page_set( $old_value, $value );
+	}
+
+	/**
+	 * Log when the privacy page option is first created (via add_option).
+	 * This happens when update_option() is called but the option doesn't exist yet.
+	 *
+	 * Fires from add_option_wp_page_for_privacy_policy.
+	 *
+	 * @param string $option Option name.
+	 * @param mixed  $value  New option value (the page ID).
+	 */
+	public function on_add_option_privacy_policy_page_non_admin( $option, $value ) {
+		if ( is_admin() ) {
+			return;
+		}
+
+		$this->log_privacy_page_set( 0, $value );
+	}
+
+	/**
+	 * Shared logging logic for non-admin privacy page set events.
+	 *
+	 * @param mixed $old_value Previous value (0 when option didn't exist before).
+	 * @param mixed $value     New page ID.
+	 */
+	private function log_privacy_page_set( $old_value, $value ) {
+		$post           = get_post( $value );
+		$new_post_title = '';
+
+		if ( is_a( $post, 'WP_Post' ) ) {
+			$new_post_title = $post->post_title;
+		}
+
+		$this->info_message(
+			'privacy_page_set',
+			array(
+				'prev_post_id'   => $old_value,
+				'new_post_id'    => $value,
+				'new_post_title' => $new_post_title,
+			)
+		);
+	}
+
+	/**
 	 * Fired when the privacy admin page is loaded.
-	 * Page is something like
-	 * http://wordpress-stable.test/wp-admin/options-privacy.php
+	 * Detects privacy page creation or selection via $_POST['action'].
+	 * Page is something like http://example.test/wp-admin/options-privacy.php
+	 *
+	 * @return void
 	 */
 	public function on_load_privacy_page() {
 		// phpcs:ignore WordPress.Security.NonceVerification.Missing, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized

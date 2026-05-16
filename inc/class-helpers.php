@@ -1837,6 +1837,22 @@ class Helpers {
 	}
 
 	/**
+	 * Check if the current request is a REST API request.
+	 *
+	 * Checks both REST_REQUEST (WordPress core) and REST_API_REQUEST
+	 * (set by some plugins/contexts) to cover all known signals.
+	 *
+	 * @return bool
+	 */
+	public static function is_rest_request() {
+		if ( defined( 'REST_REQUEST' ) && REST_REQUEST ) {
+			return true;
+		}
+
+		return defined( 'REST_API_REQUEST' ) && REST_API_REQUEST;
+	}
+
+	/**
 	 * Calculates what to show in the date filter dropdown.
 	 * Returns an array with keys and values:
 	 * - "arr_days_and_pages": Array with debug info about how many days and pages to show.
