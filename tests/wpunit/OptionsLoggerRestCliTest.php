@@ -23,10 +23,6 @@ use function Simple_History\tests\get_latest_context;
  * should be logged. Arbitrary code paths (plugin admin pages, plugin REST
  * endpoints, cron, etc.) must NOT produce log rows even for tracked options.
  *
- * Test ordering matters: the negative test and the REST tests must run
- * BEFORE the WP-CLI tests, because defining the WP_CLI constant is
- * irreversible within a single PHPUnit process.
- *
  * Run with:
  * docker compose run --rm php-cli vendor/bin/codecept run wpunit OptionsLoggerRestCliTest
  */
@@ -51,6 +47,8 @@ class OptionsLoggerRestCliTest extends \Codeception\TestCase\WPTestCase {
 	}
 
 	public function tearDown(): void {
+		remove_all_filters( 'simple_history/is_wp_cli' );
+		remove_all_filters( 'simple_history/is_rest_request' );
 		// Reset any $_REQUEST values a test may have set so we don't leak
 		// admin-form context into the next test.
 		unset( $_REQUEST['option_page'] );
@@ -68,16 +66,8 @@ class OptionsLoggerRestCliTest extends \Codeception\TestCase\WPTestCase {
 	 * non-CLI context (e.g. a plugin's settings handler or background task)
 	 * must NOT produce a log row, even for a tracked option like
 	 * blogdescription.
-	 *
-	 * IMPORTANT: This test must run before any test that defines WP_CLI,
-	 * otherwise the source gate would treat it as a CLI call.
 	 */
 	public function test_does_not_log_blogdescription_change_from_arbitrary_context() {
-		$this->assertFalse(
-			defined( 'WP_CLI' ) && WP_CLI,
-			'Negative test requires WP_CLI to be undefined — fix the test order if this fails'
-		);
-
 		$original = get_option( 'blogdescription' );
 		$new_value = 'Set by plugin code ' . wp_generate_password( 6, false );
 
@@ -136,6 +126,8 @@ class OptionsLoggerRestCliTest extends \Codeception\TestCase\WPTestCase {
 	 * Settings → General.
 	 */
 	public function test_logs_blogdescription_change_via_rest_api() {
+		add_filter( 'simple_history/is_rest_request', '__return_true' );
+
 		$original = get_option( 'blogdescription' );
 		$new_value = 'Tagline set via REST ' . wp_generate_password( 6, false );
 
@@ -174,6 +166,8 @@ class OptionsLoggerRestCliTest extends \Codeception\TestCase\WPTestCase {
 	 * the /wp/v2/settings endpoint, which writes to `blogname`.
 	 */
 	public function test_logs_blogname_change_via_rest_api() {
+		add_filter( 'simple_history/is_rest_request', '__return_true' );
+
 		$original = get_option( 'blogname' );
 		$new_value = 'Site title via REST ' . wp_generate_password( 6, false );
 
@@ -208,21 +202,10 @@ class OptionsLoggerRestCliTest extends \Codeception\TestCase\WPTestCase {
 	 * with `WP_CLI` defined as true, then invokes update_option() from a
 	 * non-admin code path. The logger should still record the change.
 	 *
-	 * We reproduce that environment by defining WP_CLI and calling
-	 * update_option() — the same sequence wp-cli executes internally.
-	 *
-	 * NOTE: PHPUnit cannot un-define a constant after the test. Defining
-	 * WP_CLI here leaks into the rest of the test run, which is acceptable
-	 * because the fix's source gate only consults WP_CLI to enable logging,
-	 * never to disable it. Tests that rely on WP_CLI being undefined must
-	 * run before this one.
+	 * We hook simple_history/is_wp_cli to simulate the CLI context.
 	 */
 	public function test_logs_blogdescription_change_via_wp_cli() {
-		if ( ! defined( 'WP_CLI' ) ) {
-			define( 'WP_CLI', true );
-		}
-
-		$this->assertTrue( defined( 'WP_CLI' ) && WP_CLI, 'WP_CLI should be defined to simulate wp-cli runtime' );
+		add_filter( 'simple_history/is_wp_cli', '__return_true' );
 
 		$original = get_option( 'blogdescription' );
 		$new_value = 'Tagline set via WP-CLI ' . wp_generate_password( 6, false );
@@ -257,9 +240,7 @@ class OptionsLoggerRestCliTest extends \Codeception\TestCase\WPTestCase {
 	 * to verify the per-option enrichment path still runs for CLI changes.
 	 */
 	public function test_logs_default_category_change_via_wp_cli() {
-		if ( ! defined( 'WP_CLI' ) ) {
-			define( 'WP_CLI', true );
-		}
+		add_filter( 'simple_history/is_wp_cli', '__return_true' );
 
 		$original = get_option( 'default_category' );
 
@@ -297,9 +278,7 @@ class OptionsLoggerRestCliTest extends \Codeception\TestCase\WPTestCase {
 	 * Open-page link in the log row resolves correctly.
 	 */
 	public function test_logs_permalink_structure_change_via_wp_cli() {
-		if ( ! defined( 'WP_CLI' ) ) {
-			define( 'WP_CLI', true );
-		}
+		add_filter( 'simple_history/is_wp_cli', '__return_true' );
 
 		$original = get_option( 'permalink_structure' );
 

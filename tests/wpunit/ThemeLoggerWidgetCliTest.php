@@ -58,6 +58,8 @@ class ThemeLoggerWidgetCliTest extends \Codeception\TestCase\WPTestCase {
 	}
 
 	public function tearDown(): void {
+		remove_all_filters( 'simple_history/is_wp_cli' );
+		remove_all_filters( 'simple_history/is_rest_request' );
 		// Reset sidebars_widgets to avoid leaking widget state between tests.
 		$sidebars = get_option( 'sidebars_widgets', array() );
 		if ( isset( $sidebars[ $this->sidebar_id ] ) ) {
@@ -78,8 +80,6 @@ class ThemeLoggerWidgetCliTest extends \Codeception\TestCase\WPTestCase {
 	 * the pre-existing sidebar_admin_setup path that reads $_POST — if our new
 	 * update_option_sidebars_widgets handler doesn't bail on is_admin(), every
 	 * admin widget change would be logged twice in production.
-	 *
-	 * Defined first so it runs before WP_CLI is defined by later tests.
 	 */
 	public function test_admin_widget_add_does_not_double_log() {
 		set_current_screen( 'widgets' );
@@ -120,9 +120,7 @@ class ThemeLoggerWidgetCliTest extends \Codeception\TestCase\WPTestCase {
 	 * Currently FAILS — detection runs through sidebar_admin_setup + $_POST.
 	 */
 	public function test_logs_widget_add_via_wp_cli() {
-		if ( ! defined( 'WP_CLI' ) ) {
-			define( 'WP_CLI', true );
-		}
+		add_filter( 'simple_history/is_wp_cli', '__return_true' );
 
 		$count_before = $this->get_event_count();
 
@@ -158,9 +156,7 @@ class ThemeLoggerWidgetCliTest extends \Codeception\TestCase\WPTestCase {
 	 * Currently FAILS — same root cause as add.
 	 */
 	public function test_logs_widget_delete_via_wp_cli() {
-		if ( ! defined( 'WP_CLI' ) ) {
-			define( 'WP_CLI', true );
-		}
+		add_filter( 'simple_history/is_wp_cli', '__return_true' );
 
 		// Set up: place a widget in the sidebar first.
 		$widget_number = 98;
@@ -195,9 +191,7 @@ class ThemeLoggerWidgetCliTest extends \Codeception\TestCase\WPTestCase {
 	 * A write with identical content must not produce a log row.
 	 */
 	public function test_no_event_when_sidebars_widgets_unchanged() {
-		if ( ! defined( 'WP_CLI' ) ) {
-			define( 'WP_CLI', true );
-		}
+		add_filter( 'simple_history/is_wp_cli', '__return_true' );
 
 		$current = get_option( 'sidebars_widgets', array() );
 		$count_before = $this->get_event_count();

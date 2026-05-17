@@ -16,9 +16,6 @@ use function Simple_History\tests\get_latest_context;
  * branch exists. A second gap: save_prev_post_data() is never called for
  * WP-CLI, so diffs are empty even if the gate were lifted.
  *
- * Test ordering matters: the negative test and REST tests run BEFORE the
- * WP-CLI tests, because defining WP_CLI is irreversible within a process.
- *
  * Run with:
  * docker compose run --rm php-cli vendor/bin/codecept run wpunit PostLoggerRestCliTest
  */
@@ -42,6 +39,12 @@ class PostLoggerRestCliTest extends \Codeception\TestCase\WPTestCase {
 		wp_set_current_user( $this->admin_user_id );
 	}
 
+	public function tearDown(): void {
+		remove_all_filters( 'simple_history/is_wp_cli' );
+		remove_all_filters( 'simple_history/is_rest_request' );
+		parent::tearDown();
+	}
+
 	public function test_logger_exists_and_is_loaded() {
 		$this->assertNotNull( $this->logger );
 		$this->assertInstanceOf( Post_Logger::class, $this->logger );
@@ -50,15 +53,8 @@ class PostLoggerRestCliTest extends \Codeception\TestCase\WPTestCase {
 	/**
 	 * Negative: a plain wp_update_post() from a non-admin, non-REST, non-CLI
 	 * context (e.g. a cron task or plugin hook) must NOT produce a log row.
-	 *
-	 * Must run before any test that defines WP_CLI.
 	 */
 	public function test_does_not_log_post_update_from_arbitrary_context() {
-		$this->assertFalse(
-			defined( 'WP_CLI' ) && WP_CLI,
-			'Negative test requires WP_CLI to be undefined'
-		);
-
 		$post_id = $this->factory->post->create( array( 'post_status' => 'publish' ) );
 		$count_before = $this->get_event_count();
 
@@ -77,20 +73,8 @@ class PostLoggerRestCliTest extends \Codeception\TestCase\WPTestCase {
 	 * produce exactly one post_created event. We added pre_post_update and
 	 * wp_after_insert_post hooks for WP-CLI; they must bail in admin context so the
 	 * existing transition_post_status path remains the single source of truth.
-	 *
-	 * Must run before WP_CLI / REST_REQUEST are defined, otherwise those gates could
-	 * mask a regression of the admin path.
 	 */
 	public function test_admin_classic_post_save_still_logs() {
-		$this->assertFalse(
-			defined( 'REST_REQUEST' ) && REST_REQUEST,
-			'Test must run before REST_REQUEST is defined'
-		);
-		$this->assertFalse(
-			defined( 'WP_CLI' ) && WP_CLI,
-			'Test must run before WP_CLI is defined'
-		);
-
 		set_current_screen( 'post' );
 		$this->assertTrue( is_admin(), 'is_admin() must be true for this test to be meaningful' );
 
@@ -125,16 +109,12 @@ class PostLoggerRestCliTest extends \Codeception\TestCase\WPTestCase {
 	 * Regression: REST API post updates already work via on_rest_after_insert.
 	 * This test must stay green after the WP-CLI fix lands (no regressions).
 	 *
-	 * NOTE: rest_do_request() in the test environment does not define REST_REQUEST
-	 * (that constant is only set during a real HTTP bootstrap). The Post Logger's
-	 * REST path relies on REST_REQUEST, so we define it explicitly here.
-	 * Once defined it cannot be undefined — this test must run before any test
-	 * that expects REST_REQUEST to be absent.
+	 * rest_do_request() doesn't define REST_REQUEST in the test environment
+	 * (it's set during real HTTP bootstrap), so we hook the
+	 * simple_history/is_rest_request filter to simulate it.
 	 */
 	public function test_logs_post_update_via_rest_api() {
-		if ( ! defined( 'REST_REQUEST' ) ) {
-			define( 'REST_REQUEST', true );
-		}
+		add_filter( 'simple_history/is_rest_request', '__return_true' );
 
 		$post_id = $this->factory->post->create( array(
 			'post_status'  => 'publish',
@@ -166,9 +146,7 @@ class PostLoggerRestCliTest extends \Codeception\TestCase\WPTestCase {
 	 * with no WP_CLI override branch.
 	 */
 	public function test_logs_post_update_via_wp_cli() {
-		if ( ! defined( 'WP_CLI' ) ) {
-			define( 'WP_CLI', true );
-		}
+		add_filter( 'simple_history/is_wp_cli', '__return_true' );
 
 		$post_id = $this->factory->post->create( array( 'post_status' => 'publish' ) );
 		$count_before = $this->get_event_count();
@@ -196,9 +174,7 @@ class PostLoggerRestCliTest extends \Codeception\TestCase\WPTestCase {
 	 * bails for WP-CLI to avoid double-logging — leaving no logging path.
 	 */
 	public function test_logs_post_create_via_wp_cli() {
-		if ( ! defined( 'WP_CLI' ) ) {
-			define( 'WP_CLI', true );
-		}
+		add_filter( 'simple_history/is_wp_cli', '__return_true' );
 
 		$count_before = $this->get_event_count();
 
@@ -232,9 +208,7 @@ class PostLoggerRestCliTest extends \Codeception\TestCase\WPTestCase {
 	 * old_post_data is absent and the diff is empty even if the gate is lifted.
 	 */
 	public function test_logs_post_update_includes_content_diff_via_wp_cli() {
-		if ( ! defined( 'WP_CLI' ) ) {
-			define( 'WP_CLI', true );
-		}
+		add_filter( 'simple_history/is_wp_cli', '__return_true' );
 
 		$original_content = 'original content before cli edit';
 		$new_content      = 'new content after cli edit';
@@ -270,9 +244,7 @@ class PostLoggerRestCliTest extends \Codeception\TestCase\WPTestCase {
 	 * lose audit coverage for content deletion.
 	 */
 	public function test_logs_post_delete_via_wp_cli() {
-		if ( ! defined( 'WP_CLI' ) ) {
-			define( 'WP_CLI', true );
-		}
+		add_filter( 'simple_history/is_wp_cli', '__return_true' );
 
 		$post_id = $this->factory->post->create( array(
 			'post_status' => 'publish',

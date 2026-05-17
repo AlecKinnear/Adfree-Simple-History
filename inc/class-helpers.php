@@ -1833,7 +1833,21 @@ class Helpers {
 	 * @return bool
 	 */
 	public static function is_wp_cli() {
-		return defined( 'WP_CLI' ) && WP_CLI;
+		$is_wp_cli = defined( 'WP_CLI' ) && WP_CLI;
+
+		/**
+		 * Filter whether the current request should be treated as a WP-CLI request.
+		 *
+		 * Default value is `defined( 'WP_CLI' ) && WP_CLI`. Hooking this filter lets
+		 * tests simulate a CLI context without defining the process-global WP_CLI
+		 * constant (which can't be undefined and would leak between tests in a
+		 * single PHPUnit process).
+		 *
+		 * @since 5.28.0
+		 *
+		 * @param bool $is_wp_cli Whether the current request is a WP-CLI request.
+		 */
+		return (bool) apply_filters( 'simple_history/is_wp_cli', $is_wp_cli );
 	}
 
 	/**
@@ -1846,11 +1860,22 @@ class Helpers {
 	 * @return bool
 	 */
 	public static function is_rest_request() {
-		if ( defined( 'REST_REQUEST' ) && REST_REQUEST ) {
-			return true;
-		}
+		$is_rest_request = ( defined( 'REST_REQUEST' ) && REST_REQUEST )
+			|| ( defined( 'REST_API_REQUEST' ) && REST_API_REQUEST );
 
-		return defined( 'REST_API_REQUEST' ) && REST_API_REQUEST;
+		/**
+		 * Filter whether the current request should be treated as a REST API request.
+		 *
+		 * Default value is true when REST_REQUEST or REST_API_REQUEST is defined and
+		 * truthy. Hooking this filter lets tests simulate a REST context without
+		 * defining the process-global REST_REQUEST constant (which can't be undefined
+		 * and would leak between tests in a single PHPUnit process).
+		 *
+		 * @since 5.28.0
+		 *
+		 * @param bool $is_rest_request Whether the current request is a REST API request.
+		 */
+		return (bool) apply_filters( 'simple_history/is_rest_request', $is_rest_request );
 	}
 
 	/**

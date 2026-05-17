@@ -316,7 +316,7 @@ class Options_Logger extends Logger {
 		$is_admin_form      = $this->is_wordpress_built_in_options_page( $posted_option_page )
 			|| $this->is_form_submitted_from_permalink_page();
 		$is_rest_settings   = $this->is_processing_rest_settings_request;
-		$is_wp_cli          = defined( 'WP_CLI' ) && WP_CLI;
+		$is_wp_cli          = Helpers::is_wp_cli();
 
 		if ( ! $is_admin_form && ! $is_rest_settings && ! $is_wp_cli ) {
 			return;

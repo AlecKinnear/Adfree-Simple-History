@@ -19,8 +19,6 @@ use function Simple_History\tests\get_latest_context;
  * Unaffected: wp user create/delete, wp user add-role/remove-role (those
  *             already have explicit WP_CLI hooks).
  *
- * Test ordering: negative test and REST tests run before the WP_CLI test.
- *
  * Run with:
  * docker compose run --rm php-cli vendor/bin/codecept run wpunit UserLoggerRestCliTest
  */
@@ -53,6 +51,12 @@ class UserLoggerRestCliTest extends \Codeception\TestCase\WPTestCase {
 		wp_set_current_user( $this->admin_user_id );
 	}
 
+	public function tearDown(): void {
+		remove_all_filters( 'simple_history/is_wp_cli' );
+		remove_all_filters( 'simple_history/is_rest_request' );
+		parent::tearDown();
+	}
+
 	public function test_logger_exists_and_is_loaded() {
 		$this->assertNotNull( $this->logger );
 		$this->assertInstanceOf( User_Logger::class, $this->logger );
@@ -65,15 +69,8 @@ class UserLoggerRestCliTest extends \Codeception\TestCase\WPTestCase {
 	 * NOTE: Whether to allow all wp_update_user() calls or gate by source is a
 	 * decision noted in the issue. This test encodes the conservative choice
 	 * (allowlist). If the decision is to log all updates, delete this test.
-	 *
-	 * Must run before any test that defines WP_CLI.
 	 */
 	public function test_does_not_log_user_update_from_arbitrary_context() {
-		$this->assertFalse(
-			defined( 'WP_CLI' ) && WP_CLI,
-			'Negative test requires WP_CLI to be undefined'
-		);
-
 		$count_before = $this->get_event_count();
 
 		wp_update_user( array(
@@ -92,20 +89,8 @@ class UserLoggerRestCliTest extends \Codeception\TestCase\WPTestCase {
 	 * Regression guard: a profile update from within wp-admin (user-edit screen)
 	 * must still log. Our refactor restructured the gate to is_admin_user_screen
 	 * OR REST OR CLI — verify the admin path didn't break.
-	 *
-	 * Must run before REST_REQUEST / WP_CLI are defined, otherwise those gates
-	 * could mask a regression of the admin gate.
 	 */
 	public function test_admin_profile_update_still_logs() {
-		$this->assertFalse(
-			defined( 'REST_REQUEST' ) && REST_REQUEST,
-			'Test must run before REST_REQUEST is defined'
-		);
-		$this->assertFalse(
-			defined( 'WP_CLI' ) && WP_CLI,
-			'Test must run before WP_CLI is defined'
-		);
-
 		set_current_screen( 'user-edit' );
 		$this->assertTrue( is_admin(), 'is_admin() must be true for this test to be meaningful' );
 
@@ -130,14 +115,9 @@ class UserLoggerRestCliTest extends \Codeception\TestCase\WPTestCase {
 	 * user_updated_profile event.
 	 */
 	public function test_logs_user_display_name_change_via_rest_api() {
-		// rest_do_request() in the test environment does not define REST_REQUEST
-		// (that constant is only set during a real HTTP bootstrap). Define it here
-		// so the logger's REST-context detection sees it.
-		// Once defined it cannot be undefined — this test must run before any test
-		// that expects REST_REQUEST to be absent.
-		if ( ! defined( 'REST_REQUEST' ) ) {
-			define( 'REST_REQUEST', true );
-		}
+		// rest_do_request() doesn't define REST_REQUEST in the test environment
+		// (it's set during real HTTP bootstrap), so hook the filter to simulate it.
+		add_filter( 'simple_history/is_rest_request', '__return_true' );
 
 		$count_before = $this->get_event_count();
 
@@ -166,6 +146,8 @@ class UserLoggerRestCliTest extends \Codeception\TestCase\WPTestCase {
 	 * Currently FAILS — same screen-guard root cause.
 	 */
 	public function test_logs_password_change_via_rest_api() {
+		add_filter( 'simple_history/is_rest_request', '__return_true' );
+
 		$count_before = $this->get_event_count();
 
 		$request = new WP_REST_Request( 'POST', "/wp/v2/users/{$this->target_user_id}" );
@@ -190,9 +172,7 @@ class UserLoggerRestCliTest extends \Codeception\TestCase\WPTestCase {
 	 * Currently FAILS — same screen-guard root cause as REST.
 	 */
 	public function test_logs_user_display_name_change_via_wp_cli() {
-		if ( ! defined( 'WP_CLI' ) ) {
-			define( 'WP_CLI', true );
-		}
+		add_filter( 'simple_history/is_wp_cli', '__return_true' );
 
 		$count_before = $this->get_event_count();
 
@@ -221,9 +201,7 @@ class UserLoggerRestCliTest extends \Codeception\TestCase\WPTestCase {
 	 * Currently FAILS — same root cause.
 	 */
 	public function test_logs_password_change_via_wp_cli() {
-		if ( ! defined( 'WP_CLI' ) ) {
-			define( 'WP_CLI', true );
-		}
+		add_filter( 'simple_history/is_wp_cli', '__return_true' );
 
 		$count_before = $this->get_event_count();
 
@@ -251,9 +229,7 @@ class UserLoggerRestCliTest extends \Codeception\TestCase\WPTestCase {
 	 * otherwise go unnoticed until a user reports it in production.
 	 */
 	public function test_logs_user_create_via_wp_cli() {
-		if ( ! defined( 'WP_CLI' ) ) {
-			define( 'WP_CLI', true );
-		}
+		add_filter( 'simple_history/is_wp_cli', '__return_true' );
 
 		$count_before = $this->get_event_count();
 
@@ -289,9 +265,7 @@ class UserLoggerRestCliTest extends \Codeception\TestCase\WPTestCase {
 	 * for one of the most security-relevant CLI operations.
 	 */
 	public function test_logs_user_delete_via_wp_cli() {
-		if ( ! defined( 'WP_CLI' ) ) {
-			define( 'WP_CLI', true );
-		}
+		add_filter( 'simple_history/is_wp_cli', '__return_true' );
 
 		$victim_id = $this->factory->user->create( array(
 			'role'         => 'subscriber',
@@ -326,9 +300,7 @@ class UserLoggerRestCliTest extends \Codeception\TestCase\WPTestCase {
 	 * would silently go unaudited.
 	 */
 	public function test_logs_user_role_change_via_wp_cli() {
-		if ( ! defined( 'WP_CLI' ) ) {
-			define( 'WP_CLI', true );
-		}
+		add_filter( 'simple_history/is_wp_cli', '__return_true' );
 
 		$count_before = $this->get_event_count();
 

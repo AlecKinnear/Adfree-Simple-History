@@ -40,6 +40,12 @@ class MenuLoggerRestCliTest extends \Codeception\TestCase\WPTestCase {
 		wp_set_current_user( $this->admin_user_id );
 	}
 
+	public function tearDown(): void {
+		remove_all_filters( 'simple_history/is_wp_cli' );
+		remove_all_filters( 'simple_history/is_rest_request' );
+		parent::tearDown();
+	}
+
 	public function test_logger_exists_and_is_loaded() {
 		$this->assertNotNull( $this->logger );
 		$this->assertInstanceOf( Menu_Logger::class, $this->logger );
@@ -69,8 +75,6 @@ class MenuLoggerRestCliTest extends \Codeception\TestCase\WPTestCase {
 	 * wp_delete_nav_menu handler must not fire. Admin menu deletion is logged by
 	 * the pre-existing load-nav-menus.php path. If the new handler doesn't bail
 	 * on is_admin(), every admin menu deletion would log twice in production.
-	 *
-	 * Defined before WP-CLI tests so it runs before WP_CLI is defined.
 	 */
 	public function test_admin_menu_delete_does_not_double_log() {
 		set_current_screen( 'nav-menus' );
@@ -107,9 +111,7 @@ class MenuLoggerRestCliTest extends \Codeception\TestCase\WPTestCase {
 	 * wp_delete_nav_menu fires after the menu is gone.
 	 */
 	public function test_logs_menu_delete_with_name_via_wp_cli() {
-		if ( ! defined( 'WP_CLI' ) ) {
-			define( 'WP_CLI', true );
-		}
+		add_filter( 'simple_history/is_wp_cli', '__return_true' );
 
 		$menu_name = 'Menu To Delete ' . wp_generate_password( 4, false );
 		$menu_id   = wp_create_nav_menu( $menu_name );
@@ -151,9 +153,7 @@ class MenuLoggerRestCliTest extends \Codeception\TestCase\WPTestCase {
 	 * apply to WP-CLI (changes commit immediately).
 	 */
 	public function test_logs_menu_item_add_via_wp_cli() {
-		if ( ! defined( 'WP_CLI' ) ) {
-			define( 'WP_CLI', true );
-		}
+		add_filter( 'simple_history/is_wp_cli', '__return_true' );
 
 		$menu_id = wp_create_nav_menu( 'Item Test Menu ' . wp_generate_password( 4, false ) );
 		$page_id = $this->factory->post->create( array( 'post_type' => 'page', 'post_status' => 'publish' ) );
@@ -186,9 +186,7 @@ class MenuLoggerRestCliTest extends \Codeception\TestCase\WPTestCase {
 	 * Currently FAILS — detection runs through load-nav-menus.php + $_POST.
 	 */
 	public function test_logs_menu_location_change_via_wp_cli() {
-		if ( ! defined( 'WP_CLI' ) ) {
-			define( 'WP_CLI', true );
-		}
+		add_filter( 'simple_history/is_wp_cli', '__return_true' );
 
 		$menu_id  = wp_create_nav_menu( 'Location Test Menu ' . wp_generate_password( 4, false ) );
 		// Register a dummy theme location so set_theme_mod has something to write.
@@ -222,9 +220,7 @@ class MenuLoggerRestCliTest extends \Codeception\TestCase\WPTestCase {
 	 * Tripwire for: wp menu item update <id>.
 	 */
 	public function test_logs_menu_item_update_via_wp_cli() {
-		if ( ! defined( 'WP_CLI' ) ) {
-			define( 'WP_CLI', true );
-		}
+		add_filter( 'simple_history/is_wp_cli', '__return_true' );
 
 		$menu_id      = wp_create_nav_menu( 'Item Update Menu ' . wp_generate_password( 4, false ) );
 		$page_id      = $this->factory->post->create( array( 'post_type' => 'page', 'post_status' => 'publish' ) );

@@ -713,8 +713,7 @@ class Post_Logger extends Logger {
 
 		$is_autosave      = defined( 'DOING_AUTOSAVE' ) && DOING_AUTOSAVE;
 		$isXmlRpcRequest  = defined( 'XMLRPC_REQUEST' ) && XMLRPC_REQUEST;
-		$isRestApiRequest =
-			( defined( 'REST_API_REQUEST' ) && REST_API_REQUEST ) || ( defined( 'REST_REQUEST' ) && REST_REQUEST );
+		$isRestApiRequest = Helpers::is_rest_request();
 
 		// Except when calls are from/for Jetpack/WordPress apps.
 		// seems to be jetpack/app request when $_GET["for"] == "jetpack.
@@ -896,7 +895,7 @@ class Post_Logger extends Logger {
 	 * @param \WP_Post $post New updated post.
 	 */
 	public function on_transition_post_status( $new_status, $old_status, $post ) {
-		$isRestApiRequest       = defined( 'REST_REQUEST' ) && REST_REQUEST;
+		$isRestApiRequest       = Helpers::is_rest_request();
 		$isAutosave             = defined( 'DOING_AUTOSAVE' ) && DOING_AUTOSAVE;
 		$isAutosaveCreatingPost = $isAutosave && $old_status === 'auto-draft' && $new_status === 'draft';
 
@@ -2065,7 +2064,7 @@ class Post_Logger extends Logger {
 	 */
 	private function log_page_role_change( $old_value, $new_value, $role ) {
 		// Only log during REST API requests (block editor).
-		if ( ! defined( 'REST_REQUEST' ) || ! REST_REQUEST ) {
+		if ( ! Helpers::is_rest_request() ) {
 			return;
 		}
 

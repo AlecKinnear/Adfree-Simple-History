@@ -52,6 +52,8 @@ class PrivacyLoggerRestCliTest extends \Codeception\TestCase\WPTestCase {
 	}
 
 	public function tearDown(): void {
+		remove_all_filters( 'simple_history/is_wp_cli' );
+		remove_all_filters( 'simple_history/is_rest_request' );
 		// Remove the privacy page option so tests don't bleed into each other.
 		delete_option( 'wp_page_for_privacy_policy' );
 		parent::tearDown();
@@ -67,8 +69,6 @@ class PrivacyLoggerRestCliTest extends \Codeception\TestCase\WPTestCase {
 	 * wp-admin, the new update_option/add_option handler must not fire. The
 	 * admin path uses on_load_privacy_page() with $_POST['action']. If the new
 	 * handler doesn't bail on is_admin(), every admin save would log twice.
-	 *
-	 * Defined before WP-CLI tests so it runs before WP_CLI is defined.
 	 */
 	public function test_admin_privacy_page_set_does_not_double_log() {
 		set_current_screen( 'options-privacy' );
@@ -115,9 +115,7 @@ class PrivacyLoggerRestCliTest extends \Codeception\TestCase\WPTestCase {
 	 * options-privacy.php admin page loads with a specific POST action.
 	 */
 	public function test_logs_privacy_page_selection_via_wp_cli() {
-		if ( ! defined( 'WP_CLI' ) ) {
-			define( 'WP_CLI', true );
-		}
+		add_filter( 'simple_history/is_wp_cli', '__return_true' );
 
 		// Ensure starting from 0 so this reads as "set page" not "create page".
 		update_option( 'wp_page_for_privacy_policy', 0 );
@@ -142,9 +140,7 @@ class PrivacyLoggerRestCliTest extends \Codeception\TestCase\WPTestCase {
 	 * Currently FAILS — same root cause.
 	 */
 	public function test_distinguishes_set_vs_create_via_wp_cli() {
-		if ( ! defined( 'WP_CLI' ) ) {
-			define( 'WP_CLI', true );
-		}
+		add_filter( 'simple_history/is_wp_cli', '__return_true' );
 
 		// No existing privacy page → this is a "set" action.
 		delete_option( 'wp_page_for_privacy_policy' );

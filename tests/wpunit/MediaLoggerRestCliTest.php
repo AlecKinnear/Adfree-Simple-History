@@ -54,6 +54,12 @@ class MediaLoggerRestCliTest extends \Codeception\TestCase\WPTestCase {
 		update_post_meta( $this->attachment_id, '_wp_attachment_image_alt', 'original alt text' );
 	}
 
+	public function tearDown(): void {
+		remove_all_filters( 'simple_history/is_wp_cli' );
+		remove_all_filters( 'simple_history/is_rest_request' );
+		parent::tearDown();
+	}
+
 	public function test_logger_exists_and_is_loaded() {
 		$this->assertNotNull( $this->logger );
 		$this->assertInstanceOf( Media_Logger::class, $this->logger );
@@ -65,6 +71,8 @@ class MediaLoggerRestCliTest extends \Codeception\TestCase\WPTestCase {
 	 * the issue confirms is already working.
 	 */
 	public function test_logs_attachment_updated_event_via_rest() {
+		add_filter( 'simple_history/is_rest_request', '__return_true' );
+
 		$count_before = $this->get_event_count();
 
 		$request = new WP_REST_Request( 'POST', "/wp/v2/media/{$this->attachment_id}" );
@@ -88,8 +96,6 @@ class MediaLoggerRestCliTest extends \Codeception\TestCase\WPTestCase {
 	 * exactly one event (with the diff appended), not duplicate events. The new
 	 * update_post_metadata filter is global, so we must verify it cooperates with
 	 * the pre-existing admin path rather than emitting a second event.
-	 *
-	 * Defined before WP-CLI tests so it runs before WP_CLI is defined.
 	 */
 	public function test_admin_alt_text_change_does_not_double_log() {
 		set_current_screen( 'upload' );
@@ -120,6 +126,8 @@ class MediaLoggerRestCliTest extends \Codeception\TestCase\WPTestCase {
 	 * no prev-state snapshot is captured for REST alt-text writes.
 	 */
 	public function test_logs_alt_text_diff_via_rest_api() {
+		add_filter( 'simple_history/is_rest_request', '__return_true' );
+
 		$new_alt = 'new alt text set via REST';
 
 		$request = new WP_REST_Request( 'POST', "/wp/v2/media/{$this->attachment_id}" );
@@ -154,9 +162,7 @@ class MediaLoggerRestCliTest extends \Codeception\TestCase\WPTestCase {
 	 * Currently FAILS — same root cause as the REST gap.
 	 */
 	public function test_logs_alt_text_diff_via_wp_cli() {
-		if ( ! defined( 'WP_CLI' ) ) {
-			define( 'WP_CLI', true );
-		}
+		add_filter( 'simple_history/is_wp_cli', '__return_true' );
 
 		$new_alt = 'new alt text set via WP-CLI';
 
@@ -192,6 +198,8 @@ class MediaLoggerRestCliTest extends \Codeception\TestCase\WPTestCase {
 	 * Regression guard for after both hooks exist simultaneously.
 	 */
 	public function test_no_duplicate_event_when_alt_text_changes_via_rest() {
+		add_filter( 'simple_history/is_rest_request', '__return_true' );
+
 		$count_before = $this->get_event_count();
 
 		$request = new WP_REST_Request( 'POST', "/wp/v2/media/{$this->attachment_id}" );
