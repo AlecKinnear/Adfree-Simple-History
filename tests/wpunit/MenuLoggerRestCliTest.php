@@ -65,6 +65,38 @@ class MenuLoggerRestCliTest extends \Codeception\TestCase\WPTestCase {
 	}
 
 	/**
+	 * Regression guard: when a menu is deleted from within wp-admin, the new
+	 * wp_delete_nav_menu handler must not fire. Admin menu deletion is logged by
+	 * the pre-existing load-nav-menus.php path. If the new handler doesn't bail
+	 * on is_admin(), every admin menu deletion would log twice in production.
+	 *
+	 * Defined before WP-CLI tests so it runs before WP_CLI is defined.
+	 */
+	public function test_admin_menu_delete_does_not_double_log() {
+		set_current_screen( 'nav-menus' );
+		$this->assertTrue( is_admin(), 'is_admin() must be true for this test to be meaningful' );
+
+		$menu_name = 'Admin Delete Menu ' . wp_generate_password( 4, false );
+		$menu_id   = wp_create_nav_menu( $menu_name );
+		$this->assertIsInt( $menu_id );
+
+		$count_before = $this->get_event_count();
+
+		wp_delete_nav_menu( $menu_id );
+
+		// This guards only the new non-admin handler; the existing admin
+		// load-nav-menus.php path is not exercised here (it depends on $_REQUEST
+		// which we don't simulate).
+		$this->assertEquals(
+			$count_before,
+			$this->get_event_count(),
+			'Admin context must not produce a deleted_menu event from the non-admin handler (double-log guard)'
+		);
+
+		set_current_screen( 'front' );
+	}
+
+	/**
 	 * WP-CLI: wp_delete_nav_menu() with WP_CLI=true must log a menu_deleted event
 	 * that includes the menu name (captured before deletion).
 	 *
@@ -180,6 +212,49 @@ class MenuLoggerRestCliTest extends \Codeception\TestCase\WPTestCase {
 
 		$context = get_latest_context();
 		$this->assert_context_has( $context, '_message_key', 'edited_menu_locations' );
+	}
+
+	/**
+	 * WP-CLI: updating an existing menu item must log an edited_menu_item event,
+	 * just like adding does. wp_update_nav_menu_item fires for both add and update
+	 * (the second arg is 0 for new, > 0 for updates).
+	 *
+	 * Tripwire for: wp menu item update <id>.
+	 */
+	public function test_logs_menu_item_update_via_wp_cli() {
+		if ( ! defined( 'WP_CLI' ) ) {
+			define( 'WP_CLI', true );
+		}
+
+		$menu_id      = wp_create_nav_menu( 'Item Update Menu ' . wp_generate_password( 4, false ) );
+		$page_id      = $this->factory->post->create( array( 'post_type' => 'page', 'post_status' => 'publish' ) );
+		$menu_item_id = wp_update_nav_menu_item( $menu_id, 0, array(
+			'menu-item-type'      => 'post_type',
+			'menu-item-object'    => 'page',
+			'menu-item-object-id' => $page_id,
+			'menu-item-status'    => 'publish',
+			'menu-item-title'     => 'Original Label',
+		) );
+		$this->assertIsInt( $menu_item_id );
+
+		$count_before = $this->get_event_count();
+
+		wp_update_nav_menu_item( $menu_id, $menu_item_id, array(
+			'menu-item-type'      => 'post_type',
+			'menu-item-object'    => 'page',
+			'menu-item-object-id' => $page_id,
+			'menu-item-status'    => 'publish',
+			'menu-item-title'     => 'Renamed Label',
+		) );
+
+		$this->assertEquals(
+			$count_before + 1,
+			$this->get_event_count(),
+			'WP-CLI menu item update must produce exactly one log row'
+		);
+
+		$row = get_latest_row();
+		$this->assertEquals( 'SimpleMenuLogger', $row['logger'] );
 	}
 
 	private function get_event_count(): int {

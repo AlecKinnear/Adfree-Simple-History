@@ -89,6 +89,43 @@ class UserLoggerRestCliTest extends \Codeception\TestCase\WPTestCase {
 	}
 
 	/**
+	 * Regression guard: a profile update from within wp-admin (user-edit screen)
+	 * must still log. Our refactor restructured the gate to is_admin_user_screen
+	 * OR REST OR CLI — verify the admin path didn't break.
+	 *
+	 * Must run before REST_REQUEST / WP_CLI are defined, otherwise those gates
+	 * could mask a regression of the admin gate.
+	 */
+	public function test_admin_profile_update_still_logs() {
+		$this->assertFalse(
+			defined( 'REST_REQUEST' ) && REST_REQUEST,
+			'Test must run before REST_REQUEST is defined'
+		);
+		$this->assertFalse(
+			defined( 'WP_CLI' ) && WP_CLI,
+			'Test must run before WP_CLI is defined'
+		);
+
+		set_current_screen( 'user-edit' );
+		$this->assertTrue( is_admin(), 'is_admin() must be true for this test to be meaningful' );
+
+		$count_before = $this->get_event_count();
+
+		wp_update_user( array(
+			'ID'           => $this->target_user_id,
+			'display_name' => 'Admin Updated Name ' . wp_generate_password( 4, false ),
+		) );
+
+		$this->assertEquals(
+			$count_before + 1,
+			$this->get_event_count(),
+			'Admin profile update must produce exactly one log row'
+		);
+
+		set_current_screen( 'front' );
+	}
+
+	/**
 	 * REST: POST /wp/v2/users/<id> with a display_name change must produce a
 	 * user_updated_profile event.
 	 */
@@ -203,6 +240,114 @@ class UserLoggerRestCliTest extends \Codeception\TestCase\WPTestCase {
 
 		$context = get_latest_context();
 		$this->assert_context_has( $context, 'edited_user_password_changed', '1' );
+	}
+
+	/**
+	 * WP-CLI: wp user create must produce a log row.
+	 *
+	 * Tripwire test for the class of bug found in Post_Logger where create paths
+	 * were silently dropped. User_Logger uses the user_register hook which is not
+	 * is_admin()-gated, so this currently passes — but a regression here would
+	 * otherwise go unnoticed until a user reports it in production.
+	 */
+	public function test_logs_user_create_via_wp_cli() {
+		if ( ! defined( 'WP_CLI' ) ) {
+			define( 'WP_CLI', true );
+		}
+
+		$count_before = $this->get_event_count();
+
+		$new_user_id = wp_insert_user( array(
+			'user_login'   => 'cli_create_' . wp_generate_password( 8, false ),
+			'user_email'   => 'cli_create_' . wp_generate_password( 8, false ) . '@example.com',
+			'user_pass'    => 'TestP@ss' . wp_generate_password( 6, false ),
+			'display_name' => 'CLI Created User',
+			'role'         => 'subscriber',
+		) );
+
+		$this->assertIsInt( $new_user_id );
+		$this->assertGreaterThan( 0, $new_user_id );
+
+		$this->assertEquals(
+			$count_before + 1,
+			$this->get_event_count(),
+			'WP-CLI wp_insert_user() must produce exactly one log row'
+		);
+
+		$row = get_latest_row();
+		$this->assertEquals( 'SimpleUserLogger', $row['logger'] );
+
+		$context = get_latest_context();
+		$this->assert_context_has( $context, '_message_key', 'user_created' );
+	}
+
+	/**
+	 * WP-CLI: wp user delete must produce a user_deleted log row.
+	 *
+	 * wp_delete_user() fires deleted_user, which is not is_admin()-gated, so this
+	 * should already work — but a regression here would silently drop audit trail
+	 * for one of the most security-relevant CLI operations.
+	 */
+	public function test_logs_user_delete_via_wp_cli() {
+		if ( ! defined( 'WP_CLI' ) ) {
+			define( 'WP_CLI', true );
+		}
+
+		$victim_id = $this->factory->user->create( array(
+			'role'         => 'subscriber',
+			'display_name' => 'To Be Deleted',
+		) );
+
+		$count_before = $this->get_event_count();
+
+		// wp_delete_user() lives in wp-admin/includes/user.php, which WordPress
+		// only loads on admin requests — explicitly require it under WP-CLI.
+		require_once ABSPATH . 'wp-admin/includes/user.php';
+		wp_delete_user( $victim_id );
+
+		$this->assertEquals(
+			$count_before + 1,
+			$this->get_event_count(),
+			'WP-CLI wp_delete_user() must produce exactly one log row'
+		);
+
+		$row = get_latest_row();
+		$this->assertEquals( 'SimpleUserLogger', $row['logger'] );
+
+		$context = get_latest_context();
+		$this->assert_context_has( $context, '_message_key', 'user_deleted' );
+	}
+
+	/**
+	 * WP-CLI: wp user set-role must log the role change.
+	 *
+	 * set_user_role fires set_user_role, which the user logger hooks regardless
+	 * of context. Tripwire test — if this stops logging, role escalation via CLI
+	 * would silently go unaudited.
+	 */
+	public function test_logs_user_role_change_via_wp_cli() {
+		if ( ! defined( 'WP_CLI' ) ) {
+			define( 'WP_CLI', true );
+		}
+
+		$count_before = $this->get_event_count();
+
+		$user = new WP_User( $this->target_user_id );
+		$user->set_role( 'editor' );
+
+		$this->assertEquals(
+			$count_before + 1,
+			$this->get_event_count(),
+			'WP-CLI set_role() must produce exactly one log row'
+		);
+
+		$row = get_latest_row();
+		$this->assertEquals( 'SimpleUserLogger', $row['logger'] );
+
+		$context = get_latest_context();
+		$this->assert_context_has( $context, '_message_key', 'user_role_updated' );
+		$this->assert_context_has( $context, 'new_role', 'editor' );
+		$this->assert_context_has( $context, 'old_role', 'subscriber' );
 	}
 
 	private function get_event_count(): int {

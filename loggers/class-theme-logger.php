@@ -856,6 +856,8 @@ class Theme_Logger extends Logger {
 			$old_widgets = (array) ( $old_value[ $sidebar_id ] ?? array() );
 			$new_widgets = (array) ( $new_value[ $sidebar_id ] ?? array() );
 
+			// Reorders within the same sidebar (same widget IDs, different positions)
+			// produce empty diffs and are intentionally not logged.
 			$changes = array(
 				'widget_added'   => array_diff( $new_widgets, $old_widgets ),
 				'widget_removed' => array_diff( $old_widgets, $new_widgets ),
@@ -877,7 +879,7 @@ class Theme_Logger extends Logger {
 	 * @param string $sidebar_id  Sidebar id.
 	 */
 	private function log_widget_change( $message_key, $widget_id, $sidebar_id ) {
-		$widget_id_base = $this->get_widget_id_base_from_widget_id( $widget_id );
+		$widget_id_base = _get_widget_id_base( $widget_id );
 
 		$context = array(
 			'widget_id_base' => $widget_id_base,
@@ -891,19 +893,6 @@ class Theme_Logger extends Logger {
 		}
 
 		$this->info_message( $message_key, $context );
-	}
-
-	/**
-	 * Extract the widget id_base from a full widget ID.
-	 *
-	 * Widget IDs are formatted as "{id_base}-{number}" (e.g. "text-99", "recent-posts-2").
-	 * Strip the trailing numeric suffix to get the id_base.
-	 *
-	 * @param string $widget_id Full widget ID, e.g. "text-99".
-	 * @return string Widget id_base, e.g. "text".
-	 */
-	private function get_widget_id_base_from_widget_id( $widget_id ) {
-		return preg_replace( '/-\d+$/', '', $widget_id );
 	}
 
 	/**

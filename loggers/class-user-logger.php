@@ -541,18 +541,36 @@ class User_Logger extends Logger {
 	}
 
 	/**
-	 * Fires after the user's role has changed,
-	 * used when quick editing a user on the user admin overview screen.
+	 * Fires after the user's role has changed.
+	 *
+	 * Captures role changes from the users admin overview screen (quick edit),
+	 * REST API, and WP-CLI. Profile-screen role changes flow through the
+	 * profile_update / pre_user_data path instead.
 	 *
 	 * @param int      $user_id   The user ID.
 	 * @param string   $role      The new role.
 	 * @param string[] $old_roles An array of the user's previous roles.
 	 */
 	public function on_set_user_role_on_admin_overview_screen( $user_id, $role, $old_roles ) {
-		$current_screen = helpers::get_current_screen();
+		$is_users_screen = false;
 
-		// Bail if we are not on the users screen.
-		if ( $current_screen->id !== 'users' ) {
+		if ( is_admin() ) {
+			$current_screen  = helpers::get_current_screen();
+			$is_users_screen = isset( $current_screen->id ) && $current_screen->id === 'users';
+		}
+
+		if ( ! $is_users_screen && ! Helpers::is_rest_request() && ! Helpers::is_wp_cli() ) {
+			return;
+		}
+
+		// Suppress the implicit role assignment that wp_insert_user() does during
+		// user creation — the user_created event already records the role. New
+		// users have no previous roles, so $old_roles is empty. Edge case: an
+		// admin who explicitly cleared a user's roles first (set_role('')) and
+		// then assigns a new one would also hit this branch on the second call
+		// and not be logged. Considered acceptable — the clearing call itself
+		// is logged.
+		if ( empty( $old_roles ) ) {
 			return;
 		}
 

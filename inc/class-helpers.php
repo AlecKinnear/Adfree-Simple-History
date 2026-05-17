@@ -1839,8 +1839,9 @@ class Helpers {
 	/**
 	 * Check if the current request is a REST API request.
 	 *
-	 * Checks both REST_REQUEST (WordPress core) and REST_API_REQUEST
-	 * (set by some plugins/contexts) to cover all known signals.
+	 * Checks REST_REQUEST (WordPress core) and REST_API_REQUEST (a
+	 * Jetpack-specific constant, not a documented WordPress contract — kept
+	 * for parity with pre-existing checks in the codebase).
 	 *
 	 * @return bool
 	 */

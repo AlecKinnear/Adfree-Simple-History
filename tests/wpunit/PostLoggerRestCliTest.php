@@ -73,6 +73,55 @@ class PostLoggerRestCliTest extends \Codeception\TestCase\WPTestCase {
 	}
 
 	/**
+	 * Regression guard: a classic admin post save (auto-draft → publish) must still
+	 * produce exactly one post_created event. We added pre_post_update and
+	 * wp_after_insert_post hooks for WP-CLI; they must bail in admin context so the
+	 * existing transition_post_status path remains the single source of truth.
+	 *
+	 * Must run before WP_CLI / REST_REQUEST are defined, otherwise those gates could
+	 * mask a regression of the admin path.
+	 */
+	public function test_admin_classic_post_save_still_logs() {
+		$this->assertFalse(
+			defined( 'REST_REQUEST' ) && REST_REQUEST,
+			'Test must run before REST_REQUEST is defined'
+		);
+		$this->assertFalse(
+			defined( 'WP_CLI' ) && WP_CLI,
+			'Test must run before WP_CLI is defined'
+		);
+
+		set_current_screen( 'post' );
+		$this->assertTrue( is_admin(), 'is_admin() must be true for this test to be meaningful' );
+
+		// Create an auto-draft first, then publish — mirrors the classic editor flow.
+		$post_id = wp_insert_post( array(
+			'post_status' => 'auto-draft',
+			'post_type'   => 'post',
+			'post_title'  => 'Auto Draft Title',
+		) );
+
+		$count_before = $this->get_event_count();
+
+		wp_update_post( array(
+			'ID'          => $post_id,
+			'post_status' => 'publish',
+			'post_title'  => 'Published Title',
+		) );
+
+		$this->assertEquals(
+			$count_before + 1,
+			$this->get_event_count(),
+			'Admin auto-draft → publish must produce exactly one log row (no duplicates from WP-CLI hooks)'
+		);
+
+		$context = get_latest_context();
+		$this->assert_context_has( $context, '_message_key', 'post_created' );
+
+		set_current_screen( 'front' );
+	}
+
+	/**
 	 * Regression: REST API post updates already work via on_rest_after_insert.
 	 * This test must stay green after the WP-CLI fix lands (no regressions).
 	 *
@@ -209,6 +258,48 @@ class PostLoggerRestCliTest extends \Codeception\TestCase\WPTestCase {
 			'post_new_post_content',
 			$context_keys,
 			'post_new_post_content must be present in context when content changes via WP-CLI'
+		);
+	}
+
+	/**
+	 * WP-CLI: wp post delete --force must produce a post_deleted log row.
+	 *
+	 * wp_delete_post() fires deleted_post (and before that, trashed_post for trash
+	 * deletions). The post logger handles these through hooks that aren't
+	 * is_admin()-gated, so this should already work — but a regression would silently
+	 * lose audit coverage for content deletion.
+	 */
+	public function test_logs_post_delete_via_wp_cli() {
+		if ( ! defined( 'WP_CLI' ) ) {
+			define( 'WP_CLI', true );
+		}
+
+		$post_id = $this->factory->post->create( array(
+			'post_status' => 'publish',
+			'post_title'  => 'Post To Delete',
+		) );
+
+		$count_before = $this->get_event_count();
+
+		// Force-delete a published post: skips trash, fires deleted_post once.
+		wp_delete_post( $post_id, true );
+
+		$this->assertEquals(
+			$count_before + 1,
+			$this->get_event_count(),
+			'WP-CLI wp_delete_post() must produce exactly one log row'
+		);
+
+		$row = get_latest_row();
+		$this->assertEquals( 'SimplePostLogger', $row['logger'] );
+
+		$context = get_latest_context();
+		$this->assert_context_has( $context, '_message_key', 'post_deleted' );
+		$context_values = array_column( $context, 'value' );
+		$this->assertContains(
+			'Post To Delete',
+			$context_values,
+			'The deleted post title must appear in the logged context'
 		);
 	}
 

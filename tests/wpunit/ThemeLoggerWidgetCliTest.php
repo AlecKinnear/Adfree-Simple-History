@@ -73,6 +73,43 @@ class ThemeLoggerWidgetCliTest extends \Codeception\TestCase\WPTestCase {
 	}
 
 	/**
+	 * Regression guard: when sidebars_widgets is updated from within wp-admin,
+	 * the non-admin handler must not fire. Admin widget add/remove is handled by
+	 * the pre-existing sidebar_admin_setup path that reads $_POST — if our new
+	 * update_option_sidebars_widgets handler doesn't bail on is_admin(), every
+	 * admin widget change would be logged twice in production.
+	 *
+	 * Defined first so it runs before WP_CLI is defined by later tests.
+	 */
+	public function test_admin_widget_add_does_not_double_log() {
+		set_current_screen( 'widgets' );
+		$this->assertTrue( is_admin(), 'is_admin() must be true for this test to be meaningful' );
+
+		$count_before = $this->get_event_count();
+
+		// Add a widget to the sidebar. In production this would trigger
+		// sidebar_admin_setup via $_POST; here we exercise only the
+		// update_option_sidebars_widgets path that our new handler hooks.
+		$widget_number = 97;
+		update_option( 'widget_text', array( $widget_number => array( 'text' => 'admin add' ) ) );
+
+		$sidebars = get_option( 'sidebars_widgets', array() );
+		if ( ! isset( $sidebars[ $this->sidebar_id ] ) ) {
+			$sidebars[ $this->sidebar_id ] = array();
+		}
+		$sidebars[ $this->sidebar_id ][] = "text-{$widget_number}";
+		update_option( 'sidebars_widgets', $sidebars );
+
+		$this->assertEquals(
+			$count_before,
+			$this->get_event_count(),
+			'Admin context must not produce a widget_added event from the non-admin handler (double-log guard)'
+		);
+
+		set_current_screen( 'front' );
+	}
+
+	/**
 	 * WP-CLI: adding a widget by updating sidebars_widgets directly with
 	 * WP_CLI=true must produce a widget_added log event.
 	 *

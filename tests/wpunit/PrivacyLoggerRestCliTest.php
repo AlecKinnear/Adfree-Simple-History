@@ -63,6 +63,49 @@ class PrivacyLoggerRestCliTest extends \Codeception\TestCase\WPTestCase {
 	}
 
 	/**
+	 * Regression guard: when wp_page_for_privacy_policy is updated from within
+	 * wp-admin, the new update_option/add_option handler must not fire. The
+	 * admin path uses on_load_privacy_page() with $_POST['action']. If the new
+	 * handler doesn't bail on is_admin(), every admin save would log twice.
+	 *
+	 * Defined before WP-CLI tests so it runs before WP_CLI is defined.
+	 */
+	public function test_admin_privacy_page_set_does_not_double_log() {
+		set_current_screen( 'options-privacy' );
+		$this->assertTrue( is_admin(), 'is_admin() must be true for this test to be meaningful' );
+
+		// Ensure the option does not exist so add_option fires first, then update_option.
+		delete_option( 'wp_page_for_privacy_policy' );
+		$count_before = $this->get_event_count();
+
+		// First write triggers add_option; second triggers update_option.
+		update_option( 'wp_page_for_privacy_policy', $this->privacy_page_id );
+
+		$second_page_id = $this->factory->post->create( array(
+			'post_type'   => 'page',
+			'post_status' => 'publish',
+			'post_title'  => 'Privacy Policy 2',
+		) );
+		update_option( 'wp_page_for_privacy_policy', $second_page_id );
+
+		$this->assertEquals(
+			$count_before,
+			$this->get_event_count(),
+			'Admin context must not produce events from the non-admin add/update handlers (double-log guard)'
+		);
+
+		// Confirm the option mutation actually happened — otherwise the count
+		// assertion above would pass vacuously if the writes were no-ops.
+		$this->assertEquals(
+			(int) $second_page_id,
+			(int) get_option( 'wp_page_for_privacy_policy' ),
+			'wp_page_for_privacy_policy must reflect the second admin write'
+		);
+
+		set_current_screen( 'front' );
+	}
+
+	/**
 	 * WP-CLI: update_option('wp_page_for_privacy_policy', <page_id>) with
 	 * WP_CLI=true must produce a log event.
 	 *

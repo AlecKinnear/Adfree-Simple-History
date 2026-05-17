@@ -84,6 +84,35 @@ class MediaLoggerRestCliTest extends \Codeception\TestCase\WPTestCase {
 	}
 
 	/**
+	 * Regression guard: an alt text change from within wp-admin must still produce
+	 * exactly one event (with the diff appended), not duplicate events. The new
+	 * update_post_metadata filter is global, so we must verify it cooperates with
+	 * the pre-existing admin path rather than emitting a second event.
+	 *
+	 * Defined before WP-CLI tests so it runs before WP_CLI is defined.
+	 */
+	public function test_admin_alt_text_change_does_not_double_log() {
+		set_current_screen( 'upload' );
+		$this->assertTrue( is_admin(), 'is_admin() must be true for this test to be meaningful' );
+
+		$new_alt      = 'admin updated alt';
+		$count_before = $this->get_event_count();
+
+		update_post_meta( $this->attachment_id, '_wp_attachment_image_alt', $new_alt );
+
+		$prev = get_post( $this->attachment_id );
+		wp_update_post( array( 'ID' => $this->attachment_id, 'post_title' => $prev->post_title ) );
+
+		$this->assertEquals(
+			$count_before + 1,
+			$this->get_event_count(),
+			'Admin alt text change must produce exactly one event, not duplicates'
+		);
+
+		set_current_screen( 'front' );
+	}
+
+	/**
 	 * REST: updating alt text via POST /wp/v2/media/<id> must include the
 	 * before/after diff in the logged context.
 	 *
