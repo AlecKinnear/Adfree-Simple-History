@@ -47,6 +47,7 @@ See the **wordpress-org-compliance** skill for detailed guidelines on implementi
 -   Supports both MySQL/MariaDB and SQLite databases
 -   Use `Log_Query::get_db_engine()` to check database type (`'mysql'` or `'sqlite'`)
 -   Avoid MySQL-specific SQL (e.g., `OPTIMIZE TABLE`, `SHOW TABLE STATUS`) without a database type guard
+-   Some vendor packages are patched via `cweagans/composer-patches`. Patches live in `patches/` and are auto-applied on `composer install`. See [patches/README.md](patches/README.md) before editing anything under `vendor/`.
 
 ## Quick Start
 
