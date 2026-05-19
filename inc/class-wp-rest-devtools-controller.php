@@ -86,6 +86,32 @@ class WP_REST_Devtools_Controller extends WP_REST_Controller {
 				],
 			],
 		);
+
+		// POST /wp-json/simple-history/v1/dev-tools/set-license-key.
+		register_rest_route(
+			$this->namespace,
+			'/' . $this->rest_base . '/set-license-key',
+			[
+				[
+					'methods'             => WP_REST_Server::CREATABLE,
+					'callback'            => [ $this, 'set_license_key' ],
+					'permission_callback' => [ $this, 'toggle_plugin_permissions_check' ],
+					'args'                => [
+						'slug' => [
+							'required'    => true,
+							'type'        => 'string',
+							'description' => __( 'Add-on plugin slug, e.g. simple-history-premium', 'simple-history' ),
+						],
+						'key'  => [
+							'required'    => false,
+							'type'        => 'string',
+							'default'     => '',
+							'description' => __( 'License key. Empty string clears the key.', 'simple-history' ),
+						],
+					],
+				],
+			],
+		);
 	}
 
 	/**
@@ -222,6 +248,53 @@ class WP_REST_Devtools_Controller extends WP_REST_Controller {
 			[
 				'success'    => true,
 				'is_enabled' => (bool) $new_value,
+			]
+		);
+	}
+
+	/**
+	 * Set or clear the license key for a registered add-on plugin.
+	 *
+	 * Used by Playwright tests to deterministically set up the
+	 * "premium installed, no license key" state before assertions.
+	 *
+	 * @param WP_REST_Request $request Request object.
+	 * @return WP_REST_Response|WP_Error Response object or error.
+	 */
+	public function set_license_key( $request ) {
+		$slug = sanitize_text_field( $request->get_param( 'slug' ) );
+		$key  = sanitize_text_field( $request->get_param( 'key' ) );
+
+		/** @var Services\AddOns_Licences|null $licences_service */
+		$licences_service = $this->simple_history->get_service( Services\AddOns_Licences::class );
+
+		if ( ! $licences_service instanceof Services\AddOns_Licences ) {
+			return new WP_Error(
+				'rest_service_unavailable',
+				__( 'AddOns_Licences service not available.', 'simple-history' ),
+				[ 'status' => 500 ]
+			);
+		}
+
+		$addon = $licences_service->get_plugin( $slug );
+
+		if ( ! $addon instanceof AddOn_Plugin ) {
+			return new WP_Error(
+				'rest_addon_not_registered',
+				__( 'Add-on is not registered.', 'simple-history' ),
+				[ 'status' => 404 ]
+			);
+		}
+
+		$message        = $addon->get_license_message();
+		$message['key'] = $key === '' ? null : $key;
+		$addon->set_licence_message( $message );
+
+		return rest_ensure_response(
+			[
+				'success' => true,
+				'slug'    => $slug,
+				'has_key' => $key !== '',
 			]
 		);
 	}

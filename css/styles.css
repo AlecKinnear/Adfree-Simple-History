@@ -4964,3 +4964,63 @@ Styles for plugin update details. Markup looks like this:
 .sh-UserCard__blurredPreview:hover .sh-UserCard__premiumBadge {
 	color: var(--sh-color-blue, #2271b1);
 }
+
+/* License Reminder card — shown when an add-on is installed without a license key. */
+.sh-LicenseReminder {
+	display: flex;
+	align-items: center;
+	gap: var(--sh-spacing-medium);
+	padding: var(--sh-spacing-medium) var(--sh-spacing-large);
+	margin: var(--sh-spacing-large) 0;
+	background: var(--sh-color-cream);
+	border-left: 4px solid var(--sh-color-yellow);
+	border-radius: var(--sh-border-radius);
+}
+
+.sh-LicenseReminder-icon {
+	flex-shrink: 0;
+	width: 32px;
+	height: 32px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	color: var(--sh-color-black-2);
+}
+
+.sh-LicenseReminder-icon .dashicons {
+	font-size: 24px;
+	width: 24px;
+	height: 24px;
+}
+
+.sh-LicenseReminder-body {
+	flex: 1;
+	min-width: 0;
+}
+
+.sh-LicenseReminder-title {
+	margin: 0 0 var(--sh-spacing-xxsmall) 0;
+	font-size: 14px;
+	font-weight: 600;
+	color: #1d2327;
+}
+
+.sh-LicenseReminder-text {
+	margin: 0;
+	font-size: 13px;
+	color: #3c434a;
+}
+
+.sh-LicenseReminder-action {
+	flex-shrink: 0;
+}
+
+@media (max-width: 600px) {
+	.sh-LicenseReminder {
+		flex-wrap: wrap;
+	}
+
+	.sh-LicenseReminder-action {
+		flex-basis: 100%;
+	}
+}

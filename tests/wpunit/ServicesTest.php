@@ -63,6 +63,7 @@ class ServicesTest extends \Codeception\TestCase\WPTestCase {
 			'AI_Initiator_Detector',
 			'Post_History_Column',
 			'Post_Row_Actions',
+			'License_Reminder_Service',
 		];
 
 		$this->assertEqualsCanonicalizing($expected_slugs, $actual_slugs);

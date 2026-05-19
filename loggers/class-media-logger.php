@@ -68,6 +68,104 @@ class Media_Logger extends Logger {
 		add_filter( 'simple_history/rss_item_link', array( $this, 'filter_rss_item_link' ), 10, 2 );
 		add_filter( 'wp_save_image_editor_file', array( $this, 'on_save_image_editor_file' ), 10, 5 );
 		add_action( 'load-post.php', [ $this, 'on_load_post_store_attachment_alt_text' ] );
+
+		// Capture alt text before any write — fires for WP-CLI and other non-REST contexts.
+		// The filter runs before the meta is written, so get_post_meta() returns the old value.
+		add_filter( 'update_post_metadata', [ $this, 'on_update_post_metadata_capture_alt_text' ], 10, 5 );
+
+		// For REST API: alt text meta is updated AFTER attachment_updated fires (by the REST controller),
+		// so we need a dedicated hook pair to capture before and append diff after.
+		add_filter( 'rest_pre_insert_attachment', [ $this, 'on_rest_pre_insert_attachment_capture_alt_text' ], 10, 2 );
+		add_action( 'rest_after_insert_attachment', [ $this, 'on_rest_after_insert_attachment_append_alt_text' ], 10, 3 );
+	}
+
+	/**
+	 * Capture the current alt text before a write for WP-CLI and other non-REST contexts.
+	 * The filter runs before the meta value is written, so get_post_meta() still returns the old value.
+	 *
+	 * For REST API, alt text is updated AFTER attachment_updated fires, so a separate hook pair
+	 * (rest_pre_insert_attachment + rest_after_insert_attachment) handles that flow.
+	 *
+	 * @param mixed|null $check      Normally null; returning non-null short-circuits the write.
+	 * @param int        $object_id  Post ID.
+	 * @param string     $meta_key   Meta key being written.
+	 * @param mixed      $meta_value New value.
+	 * @param mixed      $prev_value Previous value passed by the caller (not the DB value — unused).
+	 * @return mixed|null Always returns null to let the write proceed normally.
+	 */
+	public function on_update_post_metadata_capture_alt_text( $check, $object_id, $meta_key, $meta_value, $prev_value ) {
+		if ( $meta_key !== '_wp_attachment_image_alt' ) {
+			return $check;
+		}
+
+		if ( get_post_type( $object_id ) !== 'attachment' ) {
+			return $check;
+		}
+
+		$this->prev_attachment_values[ $object_id ] = [
+			'alt_text' => get_post_meta( $object_id, '_wp_attachment_image_alt', true ),
+		];
+
+		return $check;
+	}
+
+	/**
+	 * Capture the old alt text before a REST API attachment update.
+	 * Fires before wp_update_post() is called (which triggers attachment_updated).
+	 *
+	 * @param \stdClass        $prepared_post Prepared post data for DB insert/update.
+	 * @param \WP_REST_Request $request       Request object.
+	 * @return \stdClass $prepared_post Unchanged.
+	 */
+	public function on_rest_pre_insert_attachment_capture_alt_text( $prepared_post, $request ) {
+		if ( empty( $prepared_post->ID ) ) {
+			return $prepared_post;
+		}
+
+		$this->prev_attachment_values[ $prepared_post->ID ] = [
+			'alt_text' => get_post_meta( $prepared_post->ID, '_wp_attachment_image_alt', true ),
+		];
+
+		return $prepared_post;
+	}
+
+	/**
+	 * After a REST API attachment update completes, append the alt text diff to the logged event.
+	 * At this point, alt text meta has been updated by the REST controller.
+	 *
+	 * @param \WP_Post         $attachment Updated attachment post.
+	 * @param \WP_REST_Request $request    Request object.
+	 * @param bool             $creating   True when creating, false when updating.
+	 */
+	public function on_rest_after_insert_attachment_append_alt_text( $attachment, $request, $creating ) {
+		if ( $creating || ! $this->last_insert_id ) {
+			return;
+		}
+
+		if ( ! isset( $request['alt_text'] ) ) {
+			return;
+		}
+
+		$old_alt_text = $this->prev_attachment_values[ $attachment->ID ]['alt_text'] ?? null;
+		unset( $this->prev_attachment_values[ $attachment->ID ] );
+
+		if ( $old_alt_text === null ) {
+			return;
+		}
+
+		$new_alt_text = get_post_meta( $attachment->ID, '_wp_attachment_image_alt', true );
+
+		if ( $old_alt_text === $new_alt_text ) {
+			return;
+		}
+
+		$this->append_context(
+			$this->last_insert_id,
+			[
+				'attachment_alt_text_prev' => $old_alt_text,
+				'attachment_alt_text_new'  => $new_alt_text,
+			]
+		);
 	}
 
 	/**
@@ -268,8 +366,8 @@ class Media_Logger extends Logger {
 		$is_video = strpos( $filetype['type'], 'video/' ) !== false;
 		$is_audio = strpos( $filetype['type'], 'audio/' ) !== false;
 
-		$groups          = [];
-		$thumb_html      = '';
+		$groups            = [];
+		$thumb_html        = '';
 		$full_image_width  = null;
 		$full_image_height = null;
 
@@ -422,9 +520,11 @@ class Media_Logger extends Logger {
 			$labels     = [];
 
 			foreach ( $operations as $operation ) {
-				if ( isset( $operation_labels[ $operation ] ) ) {
-					$labels[] = $operation_labels[ $operation ];
+				if ( ! isset( $operation_labels[ $operation ] ) ) {
+					continue;
 				}
+
+				$labels[] = $operation_labels[ $operation ];
 			}
 
 			if ( ! empty( $labels ) ) {
@@ -622,7 +722,9 @@ class Media_Logger extends Logger {
 		}
 
 		// Alt text is not included in hook. Is set in post meta field '_wp_attachment_image_alt'.
-		if ( isset( $this->prev_attachment_values[ $attachment_id ]['alt_text'] ) ) {
+		// For REST API, alt text meta is updated AFTER this hook fires (by the REST controller),
+		// so the diff is appended later by on_rest_after_insert_attachment_append_alt_text().
+		if ( ! Helpers::is_rest_request() && isset( $this->prev_attachment_values[ $attachment_id ]['alt_text'] ) ) {
 			$context['attachment_alt_text_new']  = get_post_meta( $attachment_id, '_wp_attachment_image_alt', true );
 			$context['attachment_alt_text_prev'] = $this->prev_attachment_values[ $attachment_id ]['alt_text'];
 		}

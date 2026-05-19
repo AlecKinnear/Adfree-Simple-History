@@ -2,6 +2,7 @@ import { Tooltip } from '@wordpress/components';
 import { __, sprintf } from '@wordpress/i18n';
 import { Icon } from '@wordpress/icons';
 import { EventHeaderItem } from './EventHeaderItem';
+import { getTrackingUrl } from '../functions';
 
 /**
  * Sparkle — the de-facto AI/agent icon adopted across the industry
@@ -40,28 +41,31 @@ function getDetectedViaLabel( detectedVia ) {
 	switch ( detectedVia ) {
 		case 'abilities-api':
 			return __(
-				'request being made to the WordPress Abilities API',
+				'a WordPress API designed for AI integrations',
 				'simple-history'
 			);
 		case 'signature-agent':
 			return __(
-				'cryptographically signed Signature-Agent request header',
+				'a verified signature the AI agent attached to its request',
 				'simple-history'
 			);
 		case 'header':
-			return __( 'MCP client request header', 'simple-history' );
+			return __(
+				'a special request marker used by AI coding tools',
+				'simple-history'
+			);
 		case 'user-agent':
 			return __(
-				'user-agent string the AI tool sent with the request',
+				'the name the AI tool reported in its request',
 				'simple-history'
 			);
 		case 'wp-cli-env':
 			return __(
-				'WP-CLI environment variable set by the AI tool',
+				'an environment marker the AI tool left when running command-line tasks',
 				'simple-history'
 			);
 		default:
-			return __( 'request signals', 'simple-history' );
+			return __( 'signals in the request', 'simple-history' );
 	}
 }
 
@@ -90,20 +94,32 @@ export function EventAIOrigin( props ) {
 		aiOrigin.agent_name
 	);
 
+	const helpUrl = getTrackingUrl(
+		'https://simple-history.com/docs/ai-agent-detection/',
+		'ai-agent-detection',
+		'plugin',
+		'tooltip'
+	);
+
 	const tooltip = (
 		<>
 			<p>
 				{ __(
-					'This event appears to have been triggered by an AI tool or agent.',
+					'This event looks like it was made by an AI tool acting on behalf of a logged-in user.',
 					'simple-history'
 				) }
 			</p>
 			<p>
 				{ sprintf(
 					/* translators: %s: explanation of how the AI agent was detected. */
-					__( 'Detected from the %s.', 'simple-history' ),
+					__( 'Detected from %s.', 'simple-history' ),
 					getDetectedViaLabel( aiOrigin.detected_via )
 				) }
+			</p>
+			<p>
+				<a href={ helpUrl } target="_blank" rel="noopener noreferrer">
+					{ __( 'Learn how AI detection works', 'simple-history' ) }
+				</a>
 			</p>
 		</>
 	);

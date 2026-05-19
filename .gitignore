@@ -37,6 +37,9 @@ tests/_output/*
 !tests/plugins
 tests/plugins/*
 !tests/plugins/.gitkeep
+!tests/playwright
+tests/playwright/.auth/
+!tests/screenshot
 
 # Local environment files
 db-export-*.sql
@@ -65,6 +68,10 @@ CLAUDE.local.md
 docker/claude-code/.env
 benchmarks/
 scripts/check-server-logs.sh
+
+# Playwright output
+playwright-report/
+test-results/
 
 # Docs with credentials or business-sensitive content
 docs/channels-local-testing.md

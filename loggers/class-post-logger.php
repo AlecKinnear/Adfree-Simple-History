@@ -2,6 +2,7 @@
 
 namespace Simple_History\Loggers;
 
+use Simple_History\Event_Details\Event_Details_Container;
 use Simple_History\Event_Details\Event_Details_Group;
 use Simple_History\Event_Details\Event_Details_Group_Diff_Table_Formatter;
 use Simple_History\Event_Details\Event_Details_Item;
@@ -98,6 +99,11 @@ class Post_Logger extends Logger {
 
 		// Add rest hooks late to increase chance of getting all registered post types.
 		add_action( 'init', array( $this, 'add_rest_hooks' ), 99 );
+
+		// WP-CLI post update path. on_transition_post_status bails for WP-CLI to avoid
+		// double-logging; these two hooks handle the prev/new snapshot + log instead.
+		add_action( 'pre_post_update', array( $this, 'on_pre_post_update' ), 10, 1 );
+		add_action( 'wp_after_insert_post', array( $this, 'on_wp_after_insert_post' ), 10, 4 );
 
 		add_action( 'update_option_page_on_front', array( $this, 'on_update_option_page_on_front' ), 10, 2 );
 		add_action( 'update_option_page_for_posts', array( $this, 'on_update_option_page_for_posts' ), 10, 2 );
@@ -356,13 +362,82 @@ class Post_Logger extends Logger {
 	}
 
 	/**
+	 * Capture prev post state for WP-CLI updates.
+	 *
+	 * Admin path captures prev state in on_admin_action_editpost_save_prev_post()
+	 * — pre_post_update would see new values there because custom fields are
+	 * written via a separate AJAX call before the form submit.
+	 *
+	 * @param int $post_ID The post ID being updated.
+	 */
+	public function on_pre_post_update( $post_ID ) {
+		if ( is_admin() ) {
+			return;
+		}
+
+		if ( ! Helpers::is_wp_cli() ) {
+			return;
+		}
+
+		$this->save_prev_post_data( $post_ID );
+	}
+
+	/**
+	 * Log a post create or update made via WP-CLI. Mirrors on_rest_after_insert.
+	 *
+	 * @param int           $post_id     ID of the saved post.
+	 * @param \WP_Post      $post        The saved post object.
+	 * @param bool          $update      True when updating, false when creating.
+	 * @param \WP_Post|null $post_before The post before the update, or null for new posts.
+	 */
+	public function on_wp_after_insert_post( $post_id, $post, $update, $post_before ) {
+		if ( ! Helpers::is_wp_cli() ) {
+			return;
+		}
+
+		if ( ! $post instanceof \WP_Post ) {
+			return;
+		}
+
+		if ( ! $this->ok_to_log_post_posttype( $post ) ) {
+			return;
+		}
+
+		if ( $update ) {
+			$old_post       = $this->old_post_data[ $post->ID ]['post_data'] ?? null;
+			$old_post_meta  = $this->old_post_data[ $post->ID ]['post_meta'] ?? null;
+			$old_post_terms = $this->old_post_data[ $post->ID ]['post_terms'] ?? null;
+			$old_status     = $old_post ? $old_post->post_status : null;
+		} else {
+			$old_post       = null;
+			$old_post_meta  = null;
+			$old_post_terms = null;
+			// 'new' is WordPress's status transition placeholder when no prior post exists.
+			$old_status = 'new';
+		}
+
+		$args = array(
+			'new_post'       => $post,
+			'new_post_meta'  => get_post_custom( $post->ID ),
+			'new_post_terms' => wp_get_object_terms( $post->ID, get_object_taxonomies( $post->post_type ) ),
+			'old_post'       => $old_post,
+			'old_post_meta'  => $old_post_meta,
+			'old_post_terms' => $old_post_terms,
+			'old_status'     => $old_status,
+		);
+
+		$this->maybe_log_post_change( $args );
+	}
+
+	/**
 	 * Get and store old info about a post that is going to be edited.
 	 * Needed to later compare old data with new data, to detect differences.
 	 * This function is called on edit screen but before post edits are saved.
 	 *
-	 * Can't use the regular filters like "pre_post_update" because custom fields are already written by then.
+	 * Can't use the regular filters like "pre_post_update" because custom fields are already written by then
+	 * when editing via the classic admin form (custom fields are saved via AJAX before the form submit).
 	 *
-	 * This functions is not fird when using the block editor, then we use the REST API hooks instead.
+	 * This function is not fired when using the block editor — REST API hooks are used instead.
 	 *
 	 * @since 2.0.29
 	 */
@@ -638,8 +713,7 @@ class Post_Logger extends Logger {
 
 		$is_autosave      = defined( 'DOING_AUTOSAVE' ) && DOING_AUTOSAVE;
 		$isXmlRpcRequest  = defined( 'XMLRPC_REQUEST' ) && XMLRPC_REQUEST;
-		$isRestApiRequest =
-			( defined( 'REST_API_REQUEST' ) && REST_API_REQUEST ) || ( defined( 'REST_REQUEST' ) && REST_REQUEST );
+		$isRestApiRequest = Helpers::is_rest_request();
 
 		// Except when calls are from/for Jetpack/WordPress apps.
 		// seems to be jetpack/app request when $_GET["for"] == "jetpack.
@@ -651,6 +725,11 @@ class Post_Logger extends Logger {
 		// Also accept calls from REST API.
 		// "REST_API_REQUEST" is used by Jetpack I believe.
 		if ( $isRestApiRequest ) {
+			$ok_to_log = true;
+		}
+
+		// Accept calls from WP-CLI.
+		if ( Helpers::is_wp_cli() ) {
 			$ok_to_log = true;
 		}
 
@@ -719,9 +798,10 @@ class Post_Logger extends Logger {
 		);
 
 		// Check if this is a post being created.
-		// This includes both manual creation (auto-draft -> draft/publish)
-		// and auto-save creation (auto-draft -> draft).
-		$is_post_created = $old_status === 'auto-draft' && ( $new_status !== 'auto-draft' && $new_status !== 'inherit' );
+		// This includes manual creation (auto-draft -> draft/publish), auto-save
+		// creation (auto-draft -> draft), and WP-CLI / direct wp_insert_post()
+		// creation which transitions from 'new' to the final status.
+		$is_post_created = ( $old_status === 'auto-draft' || $old_status === 'new' ) && ( $new_status !== 'auto-draft' && $new_status !== 'inherit' );
 
 		if ( $is_post_created ) {
 			// Post created.
@@ -815,7 +895,7 @@ class Post_Logger extends Logger {
 	 * @param \WP_Post $post New updated post.
 	 */
 	public function on_transition_post_status( $new_status, $old_status, $post ) {
-		$isRestApiRequest       = defined( 'REST_REQUEST' ) && REST_REQUEST;
+		$isRestApiRequest       = Helpers::is_rest_request();
 		$isAutosave             = defined( 'DOING_AUTOSAVE' ) && DOING_AUTOSAVE;
 		$isAutosaveCreatingPost = $isAutosave && $old_status === 'auto-draft' && $new_status === 'draft';
 
@@ -823,6 +903,11 @@ class Post_Logger extends Logger {
 		// Autosaves from Gutenberg use the REST API but we want to log when they
 		// transition from auto-draft to draft (which represents post creation).
 		if ( $isRestApiRequest && ! $isAutosaveCreatingPost ) {
+			return;
+		}
+
+		// Bail for WP-CLI — handled by on_wp_after_insert_post to avoid double-logging.
+		if ( Helpers::is_wp_cli() ) {
 			return;
 		}
 
@@ -1407,6 +1492,8 @@ class Post_Logger extends Logger {
 			$diff_table_output = '';
 			$has_diff_values   = false;
 
+			$inline_group = new Event_Details_Group();
+
 			foreach ( $context as $key => $val ) {
 
 				// Skip some context keys.
@@ -1468,29 +1555,14 @@ class Post_Logger extends Logger {
 						);
 					}
 				} elseif ( $key_to_diff === 'post_status' ) {
-					$has_diff_values    = true;
-					$label              = __( 'Status', 'simple-history' );
-					$diff_table_output .= sprintf(
-						'<tr>
-							<td>%1$s</td>
-							<td>Changed from %2$s to %3$s</td>
-						</tr>',
-						$this->label_for( $key_to_diff, $label, $context ),
-						esc_html( $post_old_value ),
-						esc_html( $post_new_value )
+					$inline_group->add_item(
+						( new Event_Details_Item( null, __( 'Status', 'simple-history' ) ) )
+							->set_values( $post_new_value, $post_old_value )
 					);
 				} elseif ( $key_to_diff === 'post_date' ) {
-					$has_diff_values = true;
-					$label           = __( 'Publish date', 'simple-history' );
-
-					$diff_table_output .= sprintf(
-						'<tr>
-							<td>%1$s</td>
-							<td>Changed from %2$s to %3$s</td>
-						</tr>',
-						$this->label_for( $key_to_diff, $label, $context ),
-						esc_html( $post_old_value ),
-						esc_html( $post_new_value )
+					$inline_group->add_item(
+						( new Event_Details_Item( null, __( 'Publish date', 'simple-history' ) ) )
+							->set_values( $post_new_value, $post_old_value )
 					);
 				} elseif ( $key_to_diff === 'post_name' ) {
 					$has_diff_values = true;
@@ -1505,51 +1577,30 @@ class Post_Logger extends Logger {
 						helpers::text_diff( $post_old_value, $post_new_value )
 					);
 				} elseif ( $key_to_diff === 'comment_status' ) {
-					$has_diff_values = true;
-					$label           = __( 'Comment status', 'simple-history' );
-
-					$diff_table_output .= sprintf(
-						'<tr>
-							<td>%1$s</td>
-							<td>Changed from %2$s to %3$s</td>
-						</tr>',
-						$this->label_for( $key_to_diff, $label, $context ),
-						esc_html( $post_old_value ),
-						esc_html( $post_new_value )
+					$inline_group->add_item(
+						( new Event_Details_Item( null, __( 'Comment status', 'simple-history' ) ) )
+							->set_values( $post_new_value, $post_old_value )
 					);
 				} elseif ( $key_to_diff === 'post_author' ) {
-					$has_diff_values = true;
-
 					// wp post edit screen uses display_name so we should use it too.
 					if (
 						isset( $context['post_prev_post_author/display_name'] ) &&
 						isset( $context['post_new_post_author/display_name'] )
 					) {
-						$prev_user_display_name = $context['post_prev_post_author/display_name'];
-						$new_user_display_name  = $context['post_new_post_author/display_name'];
+						$prev_display = sprintf(
+							'%1$s (%2$s)',
+							$context['post_prev_post_author/display_name'],
+							$context['post_prev_post_author/user_email'] ?? ''
+						);
+						$new_display  = sprintf(
+							'%1$s (%2$s)',
+							$context['post_new_post_author/display_name'],
+							$context['post_new_post_author/user_email'] ?? ''
+						);
 
-						$prev_user_user_email = $context['post_prev_post_author/user_email'];
-						$new_user_user_email  = $context['post_new_post_author/user_email'];
-
-						$label              = __( 'Author', 'simple-history' );
-						$diff_table_output .= sprintf(
-							'<tr>
-								<td>%1$s</td>
-								<td>%2$s</td>
-							</tr>',
-							$this->label_for( $key_to_diff, $label, $context ),
-							helpers::interpolate(
-								__(
-									'Changed from {prev_user_display_name} ({prev_user_email}) to {new_user_display_name} ({new_user_email})',
-									'simple-history'
-								),
-								array(
-									'prev_user_display_name' => esc_html( $prev_user_display_name ),
-									'prev_user_email' => esc_html( $prev_user_user_email ),
-									'new_user_display_name' => esc_html( $new_user_display_name ),
-									'new_user_email'  => esc_html( $new_user_user_email ),
-								)
-							)
+						$inline_group->add_item(
+							( new Event_Details_Item( null, __( 'Author', 'simple-history' ) ) )
+								->set_values( $new_display, $prev_display )
 						);
 					}
 				} elseif ( $key_to_diff === 'page_template' ) {
@@ -1562,40 +1613,23 @@ class Post_Logger extends Logger {
 					$prev_page_template_name = $context['post_prev_page_template_name'] ?? '';
 					$new_page_template_name  = $context['post_new_page_template_name'] ?? '';
 
-					// If prev och new template is "default" then use that as name.
+					// If prev or new template is "default" then use that as name.
 					if ( $prev_page_template === 'default' && ! $prev_page_template_name ) {
 						$prev_page_template_name = $prev_page_template;
 					} elseif ( $new_page_template === 'default' && ! $new_page_template_name ) {
 						$new_page_template_name = $new_page_template;
 					}
 
-					$message = __(
-						'Changed from {prev_page_template} to {new_page_template}',
-						'simple-history'
-					);
-					if ( $prev_page_template_name && $new_page_template_name ) {
-						$message = __(
-							'Changed from "{prev_page_template_name}" to "{new_page_template_name}"',
-							'simple-history'
-						);
-					}
+					$prev_display = $prev_page_template_name
+						? sprintf( '%1$s (%2$s)', $prev_page_template_name, $prev_page_template )
+						: $prev_page_template;
+					$new_display  = $new_page_template_name
+						? sprintf( '%1$s (%2$s)', $new_page_template_name, $new_page_template )
+						: $new_page_template;
 
-					$label              = __( 'Template', 'simple-history' );
-					$diff_table_output .= sprintf(
-						'<tr>
-							<td>%1$s</td>
-							<td>%2$s</td>
-						</tr>',
-						$this->label_for( $key_to_diff, $label, $context ),
-						helpers::interpolate(
-							$message,
-							array(
-								'prev_page_template'      => '<code>' . esc_html( $prev_page_template ) . '</code>',
-								'new_page_template'       => '<code>' . esc_html( $new_page_template ) . '</code>',
-								'prev_page_template_name' => esc_html( $prev_page_template_name ),
-								'new_page_template_name'  => esc_html( $new_page_template_name ),
-							)
-						)
+					$inline_group->add_item(
+						( new Event_Details_Item( null, __( 'Template', 'simple-history' ) ) )
+							->set_values( $new_display, $prev_display )
 					);
 				} else {
 					$has_diff_values = true;
@@ -1688,7 +1722,21 @@ class Post_Logger extends Logger {
 					'<table class="SimpleHistoryLogitem__keyValueTable">' . $diff_table_output . '</table>';
 			}
 
-			$out .= $diff_table_output;
+			$groups = [];
+
+			if ( ! empty( $inline_group->items ) ) {
+				$groups[] = $inline_group;
+			}
+
+			if ( $diff_table_output !== '' ) {
+				$groups[] = Event_Details_Group::create_raw( $diff_table_output );
+			}
+
+			if ( empty( $groups ) ) {
+				return '';
+			}
+
+			return Event_Details_Container::create_from( $groups );
 		} elseif ( $message_key === 'post_created' ) {
 			// Show initial post content for created posts using Event_Details classes.
 			// The Event Details system will automatically read values from context.
@@ -2016,7 +2064,7 @@ class Post_Logger extends Logger {
 	 */
 	private function log_page_role_change( $old_value, $new_value, $role ) {
 		// Only log during REST API requests (block editor).
-		if ( ! defined( 'REST_REQUEST' ) || ! REST_REQUEST ) {
+		if ( ! Helpers::is_rest_request() ) {
 			return;
 		}
 

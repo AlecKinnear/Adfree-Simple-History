@@ -357,9 +357,9 @@ class Helpers {
 	}
 
 	/**
-	 * Get number of rows and the size of each Simple History table in the database.
+	 * Get number of rows, size, charset and collation of each Simple History table.
 	 *
-	 * @return array<string, array{table_name: string, size_in_mb: float|string, num_rows: int}>
+	 * @return array<string, array{table_name: string, size_in_mb: float|string, num_rows: int, charset: string, collation: string}>
 	 */
 	public static function get_db_table_stats() {
 		switch ( Log_Query::get_db_engine() ) {
@@ -373,12 +373,16 @@ class Helpers {
 	}
 
 	/**
-	 * Get number of rows and the size of each Simple History table in the database.
+	 * Get number of rows, size, charset and collation of each Simple History table.
 	 *
 	 * Uses sqlite_master to check if tables exist (always available),
 	 * then tries dbstat for size info (may not be available in wp-playground).
 	 *
-	 * @return array<string, array{table_name: string, size_in_mb: float|string, num_rows: int}>
+	 * SQLite stores all text as UTF-8 internally and has no per-table charset
+	 * concept; charset is reported as 'UTF-8' and collation as 'N/A' so callers
+	 * always get the same shape regardless of database engine.
+	 *
+	 * @return array<string, array{table_name: string, size_in_mb: float|string, num_rows: int, charset: string, collation: string}>
 	 */
 	public static function get_db_table_stats_sqlite() {
 		/** @var \wpdb $wpdb */
@@ -410,7 +414,13 @@ class Helpers {
 			return [];
 		}
 
-		// Try to get sizes using dbstat (may not be available in wp-playground).
+		// Try to get sizes using dbstat. The virtual table is only present
+		// when SQLite was built with SQLITE_ENABLE_DBSTAT_VTAB — wp-playground's
+		// PHP.wasm SQLite is not. Suppress wpdb errors around the queries so
+		// `WP_DEBUG` doesn't dump the "no such table: dbstat" notice; null
+		// returns are handled below (falls back to "N/A").
+		$suppress_errors = $wpdb->suppress_errors();
+
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 		$events_size_result = $wpdb->get_var(
 			$wpdb->prepare(
@@ -427,6 +437,8 @@ class Helpers {
 			)
 		);
 
+		$wpdb->suppress_errors( $suppress_errors );
+
 		// Use results if available, otherwise show N/A.
 		$events_size   = $events_size_result !== null ? round( (float) $events_size_result, 2 ) : 'N/A';
 		$contexts_size = $contexts_size_result !== null ? round( (float) $contexts_size_result, 2 ) : 'N/A';
@@ -438,37 +450,51 @@ class Helpers {
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 		$contexts_rows = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$contexts_table}" );
 
+		// SQLite stores all text as UTF-8 internally; there's no per-table
+		// charset or collation the way MySQL has, so report the encoding once
+		// and mark collation as not applicable.
+		$sqlite_charset   = 'UTF-8';
+		$sqlite_collation = 'N/A';
+
 		return [
 			'simple_history'          => [
 				'table_name' => $events_table,
 				'size_in_mb' => $events_size,
 				'num_rows'   => $events_rows,
+				'charset'    => $sqlite_charset,
+				'collation'  => $sqlite_collation,
 			],
 			'simple_history_contexts' => [
 				'table_name' => $contexts_table,
 				'size_in_mb' => $contexts_size,
 				'num_rows'   => $contexts_rows,
+				'charset'    => $sqlite_charset,
+				'collation'  => $sqlite_collation,
 			],
 		];
 	}
 
 	/**
-	 * Get number of rows and the size of each Simple History table in the database.
+	 * Get number of rows, size, charset and collation of each Simple History table.
 	 *
-	 * @return array<string, array{table_name: string, size_in_mb: float|string, num_rows: int}>
+	 * @return array<string, array{table_name: string, size_in_mb: float|string, num_rows: int, charset: string, collation: string}>
 	 */
 	public static function get_db_table_stats_mysql() {
 		global $wpdb;
 		$simple_history = Simple_History::get_instance();
 
-		// Get table sizes in mb.
+		// Pull size + collation from information_schema.TABLES. The collation
+		// (TABLE_COLLATION) gives us both the collation and the charset — the
+		// charset is the prefix up to the first underscore (e.g.
+		// `utf8mb4_unicode_520_ci` → `utf8mb4`).
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 		$table_size_result = $wpdb->get_results(
 			$wpdb->prepare(
 				'
 					SELECT table_name AS "table_name",
 					round(((data_length + index_length) / 1024 / 1024), 2) "size_in_mb",
-					data_length AS "data_length"
+					data_length AS "data_length",
+					table_collation AS "collation"
 					FROM information_schema.TABLES
 					WHERE table_schema = %s
 					AND table_name IN (%s, %s);
@@ -481,14 +507,44 @@ class Helpers {
 		);
 
 		// Bail if not exactly two tables found.
-		if ( sizeof( $table_size_result ) !== 2 ) {
+		if ( count( $table_size_result ) !== 2 ) {
+			return [];
+		}
+
+		// information_schema.TABLES has no guaranteed row order, so look up
+		// each table by name rather than trusting positional index.
+		$by_name = [];
+
+		foreach ( $table_size_result as $row ) {
+			$by_name[ $row['table_name'] ] = $row;
+		}
+
+		$events_table   = $simple_history->get_events_table_name();
+		$contexts_table = $simple_history->get_contexts_table_name();
+
+		if ( ! isset( $by_name[ $events_table ], $by_name[ $contexts_table ] ) ) {
 			return [];
 		}
 
 		$table_size_result = [
-			'simple_history'          => $table_size_result[0],
-			'simple_history_contexts' => $table_size_result[1],
+			'simple_history'          => $by_name[ $events_table ],
+			'simple_history_contexts' => $by_name[ $contexts_table ],
 		];
+
+		foreach ( $table_size_result as &$table ) {
+			$collation          = (string) ( $table['collation'] ?? '' );
+			$table['collation'] = $collation !== '' ? $collation : 'N/A';
+			// Charset is the prefix before the first underscore in the
+			// collation name (e.g. utf8mb4_unicode_520_ci -> utf8mb4). Some
+			// collations like `binary` have no underscore — fall back to the
+			// full collation name in that case.
+			$charset_prefix   = $collation !== '' ? strstr( $collation, '_', true ) : '';
+			$table['charset'] = $charset_prefix !== false && $charset_prefix !== ''
+				? $charset_prefix
+				: ( $collation !== '' ? $collation : 'N/A' );
+		}
+
+		unset( $table );
 
 		// Get num of rows for each table.
 		$table_size_result['simple_history']['num_rows'] = (int) $wpdb->get_var( "select count(*) FROM {$simple_history->get_events_table_name()}" ); // phpcs:ignore
@@ -575,6 +631,84 @@ class Helpers {
 	 */
 	public static function camel_case_to_snake_case( $input ) {
 		return strtolower( preg_replace( '/(?<!^)[A-Z]/', '_$0', $input ) );
+	}
+
+	/**
+	 * Convert a snake_case slug to a "Sentence case" label.
+	 *
+	 * Useful for rendering stored type/category slugs (e.g. `ai_provider`,
+	 * `spam_filtering`) as something readable when no explicit translation
+	 * exists. Capitalises only the first character; the rest stays lowercase
+	 * so multi-word slugs read naturally ("Spam filtering", not
+	 * "Spam Filtering").
+	 *
+	 * @since 5.28.0
+	 *
+	 * @param string $input snake_case identifier.
+	 * @return string
+	 */
+	public static function snake_case_to_sentence_case( $input ) {
+		return ucfirst( str_replace( '_', ' ', (string) $input ) );
+	}
+
+	/**
+	 * Return a low-information identifier for a secret value, safe to log.
+	 *
+	 * Returns the last `$visible_suffix` characters of `$secret`, suitable for
+	 * recording which credential changed without exposing the credential itself.
+	 *
+	 * Returns `null` when there is no value (empty input), when no characters
+	 * can be safely exposed (`$visible_suffix < 1`), or when the secret is too
+	 * short to expose a suffix without effectively revealing the whole value
+	 * (length <= $visible_suffix). Callers should treat `null` as "do not
+	 * store a partial identifier" and record only the fact of presence/length.
+	 *
+	 * Use for API keys, tokens, passwords — anything that should never appear
+	 * verbatim in event context, debug output, or downstream UI.
+	 *
+	 * @param string $secret         The secret to identify. Non-strings are cast.
+	 * @param int    $visible_suffix Number of trailing characters to expose.
+	 *                               Defaults to 4. Values < 1 force null.
+	 * @return string|null
+	 */
+	public static function mask_secret( $secret, $visible_suffix = 4 ) {
+		$secret = (string) $secret;
+		$length = strlen( $secret );
+
+		if ( $length === 0 || $visible_suffix < 1 || $length <= $visible_suffix ) {
+			return null;
+		}
+
+		return substr( $secret, -$visible_suffix );
+	}
+
+	/**
+	 * Format a masked-secret suffix for human-readable display.
+	 *
+	 * Produces a credential-style string like `••••XXXX`: a run of Unicode
+	 * bullets (U+2022) followed by the visible suffix. The bullet run is
+	 * capped at `$masked_length` to avoid runaway-width strings when keys
+	 * happen to be very long (the original length isn't material — the point
+	 * is "looks like a credential"). Matches the visual convention used by
+	 * Stripe, GitHub, OpenAI, and WordPress 7.0's own Connectors page.
+	 *
+	 * Returns the empty string when `$suffix` is empty so callers can render
+	 * "no value" cleanly.
+	 *
+	 * @param string|null $suffix        Suffix to display (typically from `mask_secret()`).
+	 * @param int         $masked_length Number of bullets to prepend. Defaults to 12.
+	 * @return string
+	 */
+	public static function format_masked_secret_for_display( $suffix, $masked_length = 12 ) {
+		$suffix = (string) ( $suffix ?? '' );
+
+		if ( $suffix === '' ) {
+			return '';
+		}
+
+		$masked_length = max( 0, (int) $masked_length );
+
+		return str_repeat( "\u{2022}", $masked_length ) . $suffix;
 	}
 
 	/**
@@ -1699,7 +1833,49 @@ class Helpers {
 	 * @return bool
 	 */
 	public static function is_wp_cli() {
-		return defined( 'WP_CLI' ) && WP_CLI;
+		$is_wp_cli = defined( 'WP_CLI' ) && WP_CLI;
+
+		/**
+		 * Filter whether the current request should be treated as a WP-CLI request.
+		 *
+		 * Default value is `defined( 'WP_CLI' ) && WP_CLI`. Hooking this filter lets
+		 * tests simulate a CLI context without defining the process-global WP_CLI
+		 * constant (which can't be undefined and would leak between tests in a
+		 * single PHPUnit process).
+		 *
+		 * @since 5.28.0
+		 *
+		 * @param bool $is_wp_cli Whether the current request is a WP-CLI request.
+		 */
+		return (bool) apply_filters( 'simple_history/is_wp_cli', $is_wp_cli );
+	}
+
+	/**
+	 * Check if the current request is a REST API request.
+	 *
+	 * Checks REST_REQUEST (WordPress core) and REST_API_REQUEST (a
+	 * Jetpack-specific constant, not a documented WordPress contract — kept
+	 * for parity with pre-existing checks in the codebase).
+	 *
+	 * @return bool
+	 */
+	public static function is_rest_request() {
+		$is_rest_request = ( defined( 'REST_REQUEST' ) && REST_REQUEST )
+			|| ( defined( 'REST_API_REQUEST' ) && REST_API_REQUEST );
+
+		/**
+		 * Filter whether the current request should be treated as a REST API request.
+		 *
+		 * Default value is true when REST_REQUEST or REST_API_REQUEST is defined and
+		 * truthy. Hooking this filter lets tests simulate a REST context without
+		 * defining the process-global REST_REQUEST constant (which can't be undefined
+		 * and would leak between tests in a single PHPUnit process).
+		 *
+		 * @since 5.28.0
+		 *
+		 * @param bool $is_rest_request Whether the current request is a REST API request.
+		 */
+		return (bool) apply_filters( 'simple_history/is_rest_request', $is_rest_request );
 	}
 
 	/**

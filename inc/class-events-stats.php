@@ -274,6 +274,9 @@ class Events_Stats {
 		$events_table   = $this->get_events_table_name();
 		$contexts_table = $this->get_contexts_table_name();
 
+		// Inner JOIN on wp_users + _user_id > 0 excludes anonymous events
+		// (_user_id=0 for WEB_USER/WP_CLI/WP/OTHER initiators) and deleted users
+		// from "most active users", which can't be ranked meaningfully.
 		// phpcs:disable WordPressVIPMinimum.Variables.RestrictedVariables.user_meta__wpdb__users -- Performance-critical stats query, WP user APIs too slow for bulk data
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPressVIPMinimum.Variables.RestrictedVariables.user_meta__wpdb__users
 		$users = $wpdb->get_results(
@@ -282,15 +285,17 @@ class Events_Stats {
 					c.value as user_id,
 					COUNT(*) as count,
 					u.display_name,
+					u.user_login,
 					u.user_email
 				FROM
 					%i c
 				JOIN
 					%i h ON h.id = c.history_id
-				LEFT JOIN
+				JOIN
 					%i u ON u.ID = CAST(c.value AS UNSIGNED)
 				WHERE
 					c.key = "_user_id"
+					AND CAST(c.value AS UNSIGNED) > 0
 					AND h.date >= FROM_UNIXTIME(%d)
 					AND h.date <= FROM_UNIXTIME(%d)
 				GROUP BY
@@ -312,12 +317,20 @@ class Events_Stats {
 			return [];
 		}
 
-		// Format user data with avatars and proper types.
+		// Format user data with avatars and proper types. Fall back to user_login
+		// when display_name is empty so users without first/last name still
+		// render with a usable label (e.g. "admin" instead of just "(1)").
 		return array_map(
 			function ( $user ) {
+				$display_name = trim( (string) $user->display_name );
+
+				if ( $display_name === '' ) {
+					$display_name = $user->user_login;
+				}
+
 				return [
 					'id'           => $user->user_id,
-					'display_name' => $user->display_name,
+					'display_name' => $display_name,
 					'user_email'   => $user->user_email,
 					'avatar'       => get_avatar_url( $user->user_id ),
 					'count'        => (int) $user->count,

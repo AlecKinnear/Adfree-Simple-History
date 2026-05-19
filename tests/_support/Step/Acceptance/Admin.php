@@ -89,54 +89,106 @@ class Admin extends \AcceptanceTester
     /**
      * Get latest history row and context data.
      *
+     * The event row and its context rows are written in separate DB
+     * operations, so under load the context may lag behind the row. By
+     * default the helper waits until every {placeholder} in the row's
+     * message template has been written to context — this keeps the row,
+     * its template, and its context self-consistent within a single
+     * retry iteration (no TOCTOU between two reads).
+     *
+     * Pass $required_context_keys to additionally require specific keys
+     * (e.g. for seeLogContext, which knows the keys upfront).
+     *
      * @param int $index 0 to get latest row, 1 to get second latest row, etc.
+     * @param array $required_context_keys Extra keys that must exist in context before returning.
      * @return array
+     * @throws \RuntimeException When no event row appears at $index within the retry budget.
      */
-    public function getHistory(int $index = 0): array
+    public function getHistory(int $index = 0, array $required_context_keys = []): array
     {
         $history_table = $this->grabPrefixedTableNameFor('simple_history');
         $contexts_table = $this->grabPrefixedTableNameFor('simple_history_contexts');
 
-        // Retry loop: the event row and context rows are written in separate
-        // DB operations. Under load (full suite), context may lag behind.
-        // Every real event has at least a _user_id context row.
+        $column_values = [];
+        $context_keys_values = [];
+        $latest_id = null;
+
         $max_attempts = 10;
         for ($attempt = 1; $attempt <= $max_attempts; $attempt++) {
-            // 1 query: get the event ID at the requested index (newest first).
-            $ids = array_reverse($this->grabColumnFromDatabase($history_table, 'id', []));
-            $latest_id = $ids[$index];
+            // grabColumnFromDatabase returns rows in storage order, which is
+            // usually but not guaranteed to be insertion order. Sort numerically
+            // descending so $index 0 is always the newest event.
+            $ids = $this->grabColumnFromDatabase($history_table, 'id', []);
+            rsort($ids, SORT_NUMERIC);
+            $latest_id = $ids[$index] ?? null;
 
-            // 1 query per column for the event row (5 total).
-            // Codeception has no grabRow(), so this is the minimum.
+            if ($latest_id === null) {
+                if ($attempt < $max_attempts) {
+                    usleep(200000);
+                    continue;
+                }
+                break;
+            }
+
+            // Codeception has no grabRow(), so one query per column.
             $column_values = [];
             foreach (['id', 'date', 'logger', 'message', 'initiator'] as $col) {
                 $column_values[$col] = $this->grabColumnFromDatabase($history_table, $col, ['id' => $latest_id])[0];
             }
 
-            // 2 queries: get context keys and values.
             $context_keys = $this->grabColumnFromDatabase($contexts_table, '`key`', ['history_id' => $latest_id]);
             $context_vals = $this->grabColumnFromDatabase($contexts_table, 'value', ['history_id' => $latest_id]);
 
             $context_keys_values = [];
-            for ($i = 0; $i < count($context_keys); $i++) {
+            $context_count = count($context_keys);
+            for ($i = 0; $i < $context_count; $i++) {
                 $context_keys_values[$context_keys[$i]] = $context_vals[$i];
             }
 
-            // If context rows exist, we're done.
-            if (!empty($context_keys_values)) {
+            // Auto-require the placeholders from the message template that
+            // belongs to *this* iteration's row, so caller assertions never
+            // see a template/context mismatch.
+            $effective_required = array_merge(
+                self::extractPlaceholderKeys($column_values['message']),
+                $required_context_keys
+            );
+
+            $context_ready = $effective_required
+                ? empty(array_diff($effective_required, array_keys($context_keys_values)))
+                : ! empty($context_keys_values);
+
+            if ($context_ready) {
                 break;
             }
 
-            // Context not yet written — wait briefly and retry.
             if ($attempt < $max_attempts) {
-                usleep(200000); // 200ms
+                usleep(200000);
             }
+        }
+
+        if ($latest_id === null) {
+            throw new \RuntimeException(sprintf(
+                'getHistory(): no event row at index %d after %d attempts; the simple_history table is empty.',
+                $index,
+                $max_attempts
+            ));
         }
 
         return [
             'row' => $column_values,
             'context' => $context_keys_values,
         ];
+    }
+
+    /**
+     * Extract placeholder keys (the {foo} segments) from a message template.
+     */
+    private static function extractPlaceholderKeys(string $message): array
+    {
+        if (preg_match_all('/\{([a-zA-Z0-9_]+)\}/', $message, $matches)) {
+            return array_unique($matches[1]);
+        }
+        return [];
     }
 
     /**
@@ -228,7 +280,7 @@ class Admin extends \AcceptanceTester
      */
     public function seeLogContext(array $expectedContext, int $index = 0)
     {
-        ['row' => $row, 'context' => $foundContext] = $this->getHistory($index);
+        ['row' => $row, 'context' => $foundContext] = $this->getHistory($index, array_keys($expectedContext));
 
         // Only test the keys passed.
         $foundContext = array_intersect_key($foundContext, $expectedContext);

@@ -1823,7 +1823,7 @@ abstract class Logger {
 			}
 
 			// If running as CLI and WP_CLI_PHP_USED is set then it is WP CLI that is doing it.
-			if ( defined( \WP_CLI::class ) && WP_CLI ) {
+			if ( Helpers::is_wp_cli() ) {
 				$data['initiator'] = Log_Initiators::WP_CLI;
 			}
 		}
@@ -1967,10 +1967,7 @@ abstract class Logger {
 	 */
 	private function append_rest_api_request_to_context( $context ) {
 		// Detect REST calls and append to context, if not already there.
-		$is_rest_api_request = defined( 'REST_API_REQUEST' ) && constant( 'REST_API_REQUEST' );
-		$is_rest_request     = defined( 'REST_REQUEST' ) && constant( 'REST_REQUEST' );
-
-		if ( $is_rest_api_request || $is_rest_request ) {
+		if ( Helpers::is_rest_request() ) {
 			$context['_rest_api_request'] = true;
 		}
 

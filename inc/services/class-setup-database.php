@@ -138,25 +138,21 @@ class Setup_Database extends Service {
 
 		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
 
+		$charset_collate = $wpdb->get_charset_collate();
+
 		// Table creation, used to be in register_activation_hook
 		// We change the varchar size to add one num just to force update of encoding. dbdelta didn't see it otherwise.
 		$sql =
 			'CREATE TABLE ' .
 			$table_name .
-			' (
+			" (
 			id bigint(20) NOT NULL AUTO_INCREMENT,
 			date datetime NOT NULL,
 			PRIMARY KEY  (id)
-		) CHARACTER SET=utf8;';
+		) {$charset_collate};";
 
 		// Upgrade db / fix utf for varchars.
 		dbDelta( $sql );
-
-		// Make sure table is using UTF-8. Early versions did not.
-		$sql = sprintf( 'alter table %1$s charset=utf8;', $table_name );
-
-		// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-		$wpdb->query( $sql );
 
 		$this->update_db_to_version( 1 );
 
@@ -237,6 +233,13 @@ class Setup_Database extends Service {
 
 		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
 
+		$charset_collate = $wpdb->get_charset_collate();
+
+		// WordPress uses utf8mb4 since 4.2 (4 bytes/char). InnoDB has a 767-byte
+		// index limit on older row formats, so prefix-index any varchar(255)
+		// column we index. floor(767 / 4) = 191. Matches WP core's pattern.
+		$max_index_length = 191;
+
 		// Update old table.
 		$sql = "
 			CREATE TABLE {$table_name} (
@@ -250,7 +253,7 @@ class Setup_Database extends Service {
 				PRIMARY KEY  (id),
 				KEY date (date),
 				KEY loggerdate (logger,date)
-			) CHARSET=utf8;";
+			) {$charset_collate};";
 
 		dbDelta( $sql );
 
@@ -263,8 +266,8 @@ class Setup_Database extends Service {
 				value longtext,
 				PRIMARY KEY  (context_id),
 				KEY history_id (history_id),
-				KEY `key` (`key`)
-			) CHARSET=utf8;
+				KEY `key` (`key`({$max_index_length}))
+			) {$charset_collate};
 		";
 
 		// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching

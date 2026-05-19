@@ -124,6 +124,11 @@ class Theme_Logger extends Logger {
 
 		add_action( 'sidebar_admin_setup', array( $this, 'on_action_sidebar_admin_setup__detect_widget_delete' ) );
 		add_action( 'sidebar_admin_setup', array( $this, 'on_action_sidebar_admin_setup__detect_widget_add' ) );
+
+		// Detect widget add/remove outside wp-admin (WP-CLI, REST API).
+		// Admin path uses sidebar_admin_setup which reads $_POST.
+		// This hook fires after the option is written and provides both old and new values.
+		add_action( 'update_option_sidebars_widgets', array( $this, 'on_update_option_sidebars_widgets_non_admin' ), 10, 3 );
 		add_filter( 'widget_update_callback', array( $this, 'on_widget_update_callback' ), 10, 4 );
 
 		add_action( 'load-appearance_page_custom-background', array( $this, 'on_page_load_custom_background' ) );
@@ -813,6 +818,81 @@ class Theme_Logger extends Logger {
 		}
 
 		return false;
+	}
+
+	/**
+	 * Detect widget additions and removals made outside wp-admin (WP-CLI, REST).
+	 *
+	 * The admin path uses sidebar_admin_setup hooks that read $_POST directly.
+	 * This hook fires after the option is written with both old and new values,
+	 * so we can diff them to log the same events for non-admin contexts.
+	 *
+	 * @param mixed  $old_value Previous sidebars_widgets value.
+	 * @param mixed  $new_value New sidebars_widgets value.
+	 * @param string $option    Option name (always 'sidebars_widgets').
+	 * @return void
+	 */
+	public function on_update_option_sidebars_widgets_non_admin( $old_value, $new_value, $option ) {
+		// Admin uses sidebar_admin_setup + $_POST for widget changes; skip to avoid double-logging.
+		if ( is_admin() ) {
+			return;
+		}
+
+		if ( $old_value === $new_value ) {
+			return;
+		}
+
+		$old_value = (array) $old_value;
+		$new_value = (array) $new_value;
+
+		$all_sidebar_ids = array_unique( array_merge( array_keys( $old_value ), array_keys( $new_value ) ) );
+
+		foreach ( $all_sidebar_ids as $sidebar_id ) {
+			// Skip WordPress internal array_version key.
+			if ( $sidebar_id === 'array_version' ) {
+				continue;
+			}
+
+			$old_widgets = (array) ( $old_value[ $sidebar_id ] ?? array() );
+			$new_widgets = (array) ( $new_value[ $sidebar_id ] ?? array() );
+
+			// Reorders within the same sidebar (same widget IDs, different positions)
+			// produce empty diffs and are intentionally not logged.
+			$changes = array(
+				'widget_added'   => array_diff( $new_widgets, $old_widgets ),
+				'widget_removed' => array_diff( $old_widgets, $new_widgets ),
+			);
+
+			foreach ( $changes as $message_key => $widget_ids ) {
+				foreach ( $widget_ids as $widget_id ) {
+					$this->log_widget_change( $message_key, $widget_id, $sidebar_id );
+				}
+			}
+		}
+	}
+
+	/**
+	 * Log a single widget add/remove event.
+	 *
+	 * @param string $message_key 'widget_added' or 'widget_removed'.
+	 * @param string $widget_id   Full widget id (e.g. "text-99").
+	 * @param string $sidebar_id  Sidebar id.
+	 */
+	private function log_widget_change( $message_key, $widget_id, $sidebar_id ) {
+		$widget_id_base = _get_widget_id_base( $widget_id );
+
+		$context = array(
+			'widget_id_base' => $widget_id_base,
+			'sidebar_id'     => $sidebar_id,
+		);
+
+		$widget = $this->get_widget_by_id_base( $widget_id_base );
+
+		if ( $widget ) {
+			$context['widget_name_translated'] = $widget->name;
+		}
+
+		$this->info_message( $message_key, $context );
 	}
 
 	/**
