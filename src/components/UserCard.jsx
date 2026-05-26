@@ -245,10 +245,6 @@ function WPUserCardContent( { event, cardData, isLoading } ) {
 				</div>
 			) }
 
-			{ ! isLoading && cardData && ! hasPremium && (
-				<PremiumTeaserBlurred />
-			) }
-
 			{ actions.length > 0 && (
 				<nav
 					className="sh-UserCard__actions"

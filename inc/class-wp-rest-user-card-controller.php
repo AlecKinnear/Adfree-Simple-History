@@ -162,6 +162,16 @@ class WP_REST_User_Card_Controller extends WP_REST_Controller {
 		// links like "View all user activity".
 		$actions = [
 			[
+				'key'   => 'view_activity',
+				'label' => __( 'View all user activity', 'simple-history' ),
+				'url'   => Helpers::get_filtered_events_url(
+					[
+						'users' => $user,
+						'date'  => 'lastdays:30',
+					]
+				),
+			],
+			[
 				'key'   => 'view_profile',
 				'label' => __( 'View user profile', 'simple-history' ),
 				'url'   => get_edit_user_link( $user->ID ),
