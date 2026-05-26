@@ -1,116 +1,73 @@
-# <img height="50"  src="./css/simple-history-logo.png" alt="Simple History logo">
+Here is a draft for the new professional, minimalist README for AdFree Simple History, incorporating the changes and focusing on the clear differences between this fork and the main branch.
 
-<img src="https://img.shields.io/wordpress/plugin/r/simple-history.svg?style=for-the-badge" alt="Plugin rating: 5 stars"> <img src="https://img.shields.io/wordpress/plugin/installs/simple-history?style=for-the-badge" alt="Number of active installs: over 100K"> <img src="https://img.shields.io/wordpress/plugin/dm/simple-history?style=for-the-badge" alt="Number of monthly downloads">
+---
 
-**A WordPress activity log for what matters.**
+# AdFree Simple History
 
-This is the ad-free version.
+**A professional, ad-free WordPress activity log for what matters.**
 
-Simple History is a WordPress audit log plugin that logs various things that occur in WordPress and then presents those events in a very nice GUI.  
-It's great way to view user activity and keep an eye on what the admin users of a website are doing.
+AdFree Simple History is a clean, fully functional fork of the popular WordPress Simple History plugin. Simple History is an excellent audit log utility that tracks various events occurring in WordPress and presents them in an easy-to-read graphical interface.
+
+This repository was created to provide a lightweight, distraction-free version of the plugin, stripping away the promotional content, restricted features, and intrusive menu placements introduced in recent versions of the main branch.
+
+## Why This Fork?
+
+While the original Simple History plugin is a brilliant tool, recent updates to the main branch (`bonny/WordPress-Simple-History`) have heavily monetized the interface, introducing artificial limitations and dashboard clutter. This fork is designed for agencies, developers, and publishers who just want a quiet, reliable logging tool.
+
+**Key Differences from the Main Branch:**
+
+1. **No Advertising or Nagware:** We have removed all promotional banners, premium upsells, and subscription nags.
+2. **Respectful Menu Placement:** The plugin no longer aggressively steals a top-level spot in your left-hand WordPress admin menu. It now appears neatly tucked under the site name drop-down, which is a natural fit that keeps your dashboard clean.
+3. **Restored User Links:** In the main branch, hovering over a user name shows a blurred-out popup box directing you to a premium sales page. We have removed this and restored a functional, working link to view all user activity.
+4. **Unrestricted Log Retention:** We removed the hardcoded script that limits log retention to 30 days for new installs (or 60 days for existing installs). You can once again set your preferred log retention duration in the Hidden Settings section.
+
+## Version Information
+
+This fork is actively maintained by Foliovision and originated from the `bonny/WordPress-Simple-History` repository.
+
+* **Current AdFree Release:** v5.28.0
 
 ## Installation
 
-Download from [WordPress.org](https://wordpress.org/plugins/simple-history/) and activate.
+1. Download the latest `.zip` release from this repository.
+2. Navigate to **Plugins > Add New** in your WordPress admin dashboard and upload the zip file.
+3. Activate the plugin.
+4. Access your activity logs conveniently under your site name menu in the top admin bar.
 
-## Usage
+## Release Notes
 
-### Viewing history events
+### v5.28.0 (AdFree Update)
 
-This screenshot show the user activity feed:
+* **Removed:** Stripped out all promotional dashboard advertisements and premium nag screens.
+* **Changed:** Relocated the Simple History navigation link from the primary left-hand admin menu to the drop-down under the Site Name to preserve valuable screen real estate.
+* **Fixed:** Replaced the blurred-out premium sales popup on user-hover with a functional link that directly displays the user's activity history.
+* **Unlocked:** Restored the ability to set custom log retention durations via the Hidden Settings, removing the forced 30-day/60-day limits.
 
--   It has an active **filter/search in use**:
-    -   only show changes performed by a specific user
-    -   it only shows event that are of type post and pages and media (i.e. images & other uploads)
--   A thumbnail is shown for the image that is uploaded
+## Developer API
 
-![Simple History screenshot](.wordpress-org/screenshot-1.png)
-
-### Events with different severity
-
-Simple History uses the log levels specified in the [PHP PSR-3 standard](https://www.php-fig.org/psr/psr-3/).
-
-### Quick diff lets you see what's changed
-
-![Simple History screenshot](.wordpress-org/screenshot-2.png)
-
-### Events have context with extra details
-
-Each logged event can include useful rich formatted extra information. For example: a plugin install can contain author info and a the url to the plugin, and an uploaded image can contain a thumbnail of the image.
-
-![Simple History screenshot](.wordpress-org/screenshot-3.png)
-
-## Premium Add-on
-
-[Simple History Premium](https://simple-history.com/add-ons/premium) adds:
-
--   **Log Retention** – Set retention policies (30d to forever)
--   **Export** – CSV/JSON export of filtered results
--   **Stats Dashboard** – Visual summaries of activity trends
--   **Custom Events** – Manually log important changes via GUI
--   **Stealth Mode GUI** – Control visibility per user (code-free)
--   **Sticky Events** – Pin important events to top
--   **Ad-Free** – Remove promotional content
-
-[View details](https://simple-history.com/add-ons/premium)
-
-_The free version is fully functional and will remain free. Premium exists to fund ongoing development and provide pro features for agencies/enterprises._
-
-## Plugin API
-
-Developers can easily log their own things using a simple API:
+The standard Simple History API remains fully intact. Developers can easily log custom events using the following methods:
 
 ```php
-<?php
-
-// This is the easiest and safest way to add messages to the log
-// If the plugin is disabled this way will not generate in any error
+// The safest way to add messages to the log
 do_action('simple_history_log', 'This is a logged message');
 
-// Or with some context and with log level debug:
+// Or with context and a specific log level:
 do_action(
 	'simple_history_log',
 	'My message about something',
 	[
 		'debugThing' => $myThingThatIWantIncludedInTheLoggedEvent,
-		'anotherThing' => $anotherThing
 	],
 	'debug'
 );
 
-// Or just debug a message quickly
-do_action('simple_history_log_debug', 'My debug message');
-
-// You can also use functions/methods to add events to the log
-SimpleLogger()->info("This is a message sent to the log");
-
-// Add events of different severity
+// Add events of different severities using the helper function
 SimpleLogger()->info("User admin edited page 'About our company'");
 SimpleLogger()->warning("User 'Jessie' deleted user 'Kim'");
 SimpleLogger()->debug("Ok, cron job is running!");
+
 ```
 
-You will find more examples in the [examples.php](./examples/examples.php) file.
+---
 
-**Note:** Premium users can also add custom events via the GUI at **WordPress Admin > Simple History > Add Custom Event** without writing code.
-
-## Development
-
-### Running tests
-
-See the [README](./tests/readme.md) in `tests` directory.
-
-## Sponsors
-
-### Hosting Sponsor
-
-<a href="https://www.oderland.se" style="float: right; margin-left: 20px;">
-  <img src="https://www.oderland.se/wp-content/uploads/2021/11/oderland-1024x576.jpg" alt="" width="150">
-</a>
-
-The [Simple History website](https://simple-history.com) is proudly hosted by [Oderland](https://www.oderland.com), a Swedish web hosting provider known for their reliable hosting and excellent support.
-
-### Support Development
-
-Support the free version of Simple History by becoming a sponsor.
-You can sponsor using [PayPal](https://www.paypal.com/paypalme/eskapism) or [becoming a GitHub Sponsor](https://github.com/sponsors/bonny).
+*Maintained by [Foliovision](https://foliovision.com/).*
