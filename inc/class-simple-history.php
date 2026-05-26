@@ -161,7 +161,6 @@ class Simple_History {
 			Services\History_Insights_Sidebar_Service::class,
 			Services\Import_Handler::class,
 			Services\License_Reminder_Service::class,
-			Services\Licences_Settings_Page::class,
 			Services\Loggers_Loader::class,
 			Services\Menu_Service::class,
 			Services\Message_Control_Settings_Page_Teaser::class,
