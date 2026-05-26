@@ -8,7 +8,10 @@ class PluginUserSwitchingLoggerCest
         $plugin_slug = 'user-switching';
         $I->loginAsAdmin();
         $I->amOnPluginsPage();
-        $I->activatePlugin($plugin_slug);
+        $isActive = $I->executeJS("return !!document.getElementById('deactivate-{$plugin_slug}')");
+        if (!$isActive) {
+            $I->activatePlugin($plugin_slug);
+        }
         $I->canSeePluginActivated($plugin_slug);
 
         $I->haveUserInDatabase('anna', 'author', ['user_pass' => 'password']);
@@ -18,16 +21,14 @@ class PluginUserSwitchingLoggerCest
     public function switchUser(Admin $I) {
         $I->amOnAdminPage('users.php');
 
-        // Move over second user row with Anna.
-        $I->moveMouseOver('.wp-list-table tbody tr:nth-child(2)');
-        // Click "Switch To" link. Can not use plain "Switch to" text because link
-        // contains "&nbsp;.
-        $I->click('//*[@id="user-2"]/td[1]/div/span[5]/a');
+        // Move over anna's row and click "Switch To".
+        $I->moveMouseOver('//td[contains(.,"anna")]/parent::tr');
+        $I->click('//td[contains(.,"anna")]/parent::tr//a[contains(@href,"switch_to_user")]');
         $I->seeLogMessage('Switched to user "anna" from user "admin"');
-        
-        // Switch back to admin.
-        $I->wait(2);
-        
+
+        // Wait for the dashboard to load after switching user.
+        $I->waitForElement('#user_switching');
+
         // Click "Switch back to admin" link.
         $I->click('//*[@id="user_switching"]/p/a');
         $I->seeLogMessage('Switched back to user "admin" from user "anna"');

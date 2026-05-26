@@ -4,7 +4,7 @@
  * Plugin URI: https://simple-history.com
  * Text Domain: simple-history
  * Description: Plugin that logs various things that occur in WordPress and then presents those events in a very nice GUI.
- * Version: 5.11.0
+ * Version: 5.28.0
  * Requires at least: 6.3
  * Requires PHP: 7.4
  * Author: Pär Thernström
@@ -34,7 +34,7 @@ if ( ! defined( 'WPINC' ) ) {
 
 if (
 	version_compare( phpversion(), '7.4', '<' )
-	|| version_compare( $GLOBALS['wp_version'], '6.1', '<' )
+	|| version_compare( $GLOBALS['wp_version'], '6.3', '<' )
 ) {
 	// User is running to old version of php, add admin notice about that.
 	require_once __DIR__ . '/inc/oldversions.php';
@@ -49,7 +49,7 @@ if (
  * @TODO: make activation multi site aware, as in https://github.com/scribu/wp-proper-network-activation
  * register_activation_hook( trailingslashit(WP_PLUGIN_DIR) . trailingslashit( plugin_basename(__DIR__) ) . "index.php" , array("SimpleHistory", "on_plugin_activate" ) );
  */
-define( 'SIMPLE_HISTORY_VERSION', '5.11.0' );
+define( 'SIMPLE_HISTORY_VERSION', '5.28.0' );
 
 /**
  * Filesystem path to plugin directory.
@@ -78,6 +78,12 @@ define( 'SIMPLE_HISTORY_LICENCES_API_URL', 'https://simple-history.com/wp-json/l
 require_once __DIR__ . '/inc/class-autoloader.php';
 require_once __DIR__ . '/inc/global-helpers.php';
 
+// Load Strauss autoloader for namespaced vendor dependencies.
+$sh_strauss_autoloader = __DIR__ . '/vendor-prefixed/autoload.php';
+if ( file_exists( $sh_strauss_autoloader ) ) {
+	require_once $sh_strauss_autoloader; // phpcs:ignore WordPressVIPMinimum.Files.IncludingFile.UsingVariable
+}
+
 /** Boot up. */
 $sh_loader = new Simple_History\Autoloader();
 $sh_loader->register();
@@ -86,13 +92,44 @@ $sh_loader->add_namespace( 'Simple_History', SIMPLE_HISTORY_PATH . 'inc/' );
 $sh_loader->add_namespace( 'Simple_History\Event_Details', SIMPLE_HISTORY_PATH . 'inc/event-details' );
 $sh_loader->add_namespace( 'Simple_History\Services', SIMPLE_HISTORY_PATH . 'inc/services' );
 $sh_loader->add_namespace( 'Simple_History\Services', SIMPLE_HISTORY_PATH . 'inc/services/wp-cli-commands' );
+$sh_loader->add_namespace( 'Simple_History\Channels', SIMPLE_HISTORY_PATH . 'inc/channels' );
 
-// Load code for old, deprecated things, that does not use autoloader.
-require_once __DIR__ . '/inc/deprecated/class-simplehistory.php';
-require_once __DIR__ . '/inc/deprecated/class-simplelogger.php';
-require_once __DIR__ . '/inc/deprecated/class-simpleloggerloginitiators.php';
-require_once __DIR__ . '/inc/deprecated/class-simpleloggerloglevels.php';
-require_once __DIR__ . '/inc/deprecated/class-simplehistorylogquery.php';
+// Backward compatibility aliases for moved channel classes.
+// In version 5.23.0, channel interfaces and formatters were moved from subdirectories
+// to the main channels directory to fix autoloader issues on some hosts (like WPEngine)
+// where directory-level caching caused "class not found" errors for files in new subdirectories.
+// These aliases ensure code using the old namespaces continues to work.
+class_alias( 'Simple_History\Channels\Channel_Interface', 'Simple_History\Channels\Interfaces\Channel_Interface' );
+class_alias( 'Simple_History\Channels\Formatter_Interface', 'Simple_History\Channels\Formatters\Formatter_Interface' );
+class_alias( 'Simple_History\Channels\Formatter', 'Simple_History\Channels\Formatters\Formatter' );
+class_alias( 'Simple_History\Channels\Human_Readable_Formatter', 'Simple_History\Channels\Formatters\Human_Readable_Formatter' );
+
+// Register autoloader for deprecated classes - loaded only when actually used.
+spl_autoload_register(
+	function ( $class_name ) {
+		// Only handle our deprecated classes, let other autoloaders handle the rest.
+		$deprecated_classes = array(
+			'SimpleHistory'             => __DIR__ . '/inc/deprecated/class-simplehistory.php',
+			'SimpleLogger'              => __DIR__ . '/inc/deprecated/class-simplelogger.php',
+			'SimpleLoggerLogInitiators' => __DIR__ . '/inc/deprecated/class-simpleloggerloginitiators.php',
+			'SimpleLoggerLogLevels'     => __DIR__ . '/inc/deprecated/class-simpleloggerloglevels.php',
+			'SimpleHistoryLogQuery'     => __DIR__ . '/inc/deprecated/class-simplehistorylogquery.php',
+		);
+
+		// Only handle classes we know about.
+		if ( ! isset( $deprecated_classes[ $class_name ] ) ) {
+			return; // Let other autoloaders handle it.
+		}
+
+		// Check class doesn't already exist and file exists.
+		if ( class_exists( $class_name, false ) || ! file_exists( $deprecated_classes[ $class_name ] ) ) {
+			return;
+		}
+
+		// phpcs:ignore WordPressVIPMinimum.Files.IncludingFile.UsingVariable -- Safe: array is hardcoded above.
+		require_once $deprecated_classes[ $class_name ];
+	}
+);
 
 // Create singleton instance of Simple History.
 // This runs constructor that calls init method.

@@ -19,7 +19,7 @@ class Plugin_Enable_Media_Replace_Logger extends Logger {
 	 */
 	public function get_info() {
 
-		$arr_info = array(
+		return array(
 			'name'        => _x( 'Plugin: Enable Media Replace Logger', 'PluginEnableMediaReplaceLogger', 'simple-history' ),
 			'description' => _x( 'Logs media updates made with the Enable Media Replace Plugin', 'PluginEnableMediaReplaceLogger', 'simple-history' ),
 			'name_via'    => _x( 'Using plugin Enable Media Replace', 'PluginUserSwitchingLogger', 'simple-history' ),
@@ -27,9 +27,18 @@ class Plugin_Enable_Media_Replace_Logger extends Logger {
 			'messages'    => array(
 				'replaced_file' => _x( 'Replaced attachment "{prev_attachment_title}" with new attachment "{new_attachment_title}"', 'PluginEnableMediaReplaceLogger', 'simple-history' ),
 			),
+			'labels'      => array(
+				'search' => array(
+					'label'     => _x( 'Enable Media Replace', 'Enable Media Replace logger: search', 'simple-history' ),
+					'label_all' => _x( 'All media replacements', 'Enable Media Replace logger: search', 'simple-history' ),
+					'options'   => array(
+						_x( 'Media replaced', 'Enable Media Replace logger: search', 'simple-history' ) => array(
+							'replaced_file',
+						),
+					),
+				),
+			),
 		);
-
-		return $arr_info;
 	}
 
 	/**
@@ -50,33 +59,36 @@ class Plugin_Enable_Media_Replace_Logger extends Logger {
 			return;
 		}
 
-		if ( isset( $_GET['action'] ) && $_GET['action'] == 'media_replace_upload' ) {
-			// phpcs:ignore WordPress.Security.NonceVerification.Missing
-			$attachment_id = empty( $_POST['ID'] ) ? null : (int) $_POST['ID'];
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		if ( ! isset( $_GET['action'] ) || $_GET['action'] !== 'media_replace_upload' ) {
+			return;
+		}
 
-			// phpcs:ignore WordPress.Security.NonceVerification.Missing
-			$replace_type = empty( $_POST['replace_type'] ) ? null : sanitize_text_field( wp_unslash( $_POST['replace_type'] ) );
+		// phpcs:ignore WordPress.Security.NonceVerification.Missing
+		$attachment_id = empty( $_POST['ID'] ) ? null : (int) $_POST['ID'];
 
-			// phpcs:ignore WordPress.Security.NonceVerification.Missing, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
-			$new_file = empty( $_FILES['userfile'] ) ? null : (array) $_FILES['userfile'];
+		// phpcs:ignore WordPress.Security.NonceVerification.Missing
+		$replace_type = empty( $_POST['replace_type'] ) ? null : sanitize_text_field( wp_unslash( $_POST['replace_type'] ) );
 
-			$prev_attachment_post = get_post( $attachment_id );
+		// phpcs:ignore WordPress.Security.NonceVerification.Missing, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
+		$new_file = empty( $_FILES['userfile'] ) ? null : (array) $_FILES['userfile'];
 
-			if ( empty( $attachment_id ) || empty( $new_file ) || empty( $prev_attachment_post ) ) {
-				return;
-			}
+		$prev_attachment_post = get_post( $attachment_id );
 
-			$this->info_message(
-				'replaced_file',
-				array(
-					'attachment_id' => $attachment_id,
-					'prev_attachment_title' => get_the_title( $prev_attachment_post ),
-					'new_attachment_title' => $new_file['name'],
-					'new_attachment_type' => $new_file['type'],
-					'new_attachment_size' => $new_file['size'],
-					'replace_type' => $replace_type,
-				)
-			);
-		}// End if().
+		if ( empty( $attachment_id ) || empty( $new_file ) || empty( $prev_attachment_post ) ) {
+			return;
+		}
+
+		$this->info_message(
+			'replaced_file',
+			array(
+				'attachment_id'         => $attachment_id,
+				'prev_attachment_title' => get_the_title( $prev_attachment_post ),
+				'new_attachment_title'  => $new_file['name'],
+				'new_attachment_type'   => $new_file['type'],
+				'new_attachment_size'   => $new_file['size'],
+				'replace_type'          => $replace_type,
+			)
+		);
 	}
 }

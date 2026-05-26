@@ -2,339 +2,182 @@
 
 namespace Simple_History\Dropins;
 
-use DateTime;
-use DateInterval;
-use DatePeriod;
-use Simple_History\Helpers;
-use Simple_History\Menu_Manager;
 /**
- * Dropin Name: Sidebar with short stats
+ * Dropin Name: Sidebar with eventstats.
  * Dropin URI: https://simple-history.com/
  * Author: Pär Thernström
+ *
+ * @deprecated 5.18.1 Use History_Insights_Sidebar_Service instead.
  */
 class Sidebar_Stats_Dropin extends Dropin {
-	/** @inheritdoc */
+	/**
+	 * Called when dropin is loaded.
+	 *
+	 * @deprecated 5.18.1 Use History_Insights_Sidebar_Service instead.
+	 */
 	public function loaded() {
-		add_action( 'simple_history/dropin/sidebar/sidebar_html', array( $this, 'on_sidebar_html' ), 4 );
-		add_action( 'simple_history/enqueue_admin_scripts', array( $this, 'on_admin_enqueue_scripts' ) );
-		add_action( 'simple_history/admin_footer', array( $this, 'on_admin_footer' ) );
 	}
 
 	/**
 	 * Enqueue scripts.
+	 *
+	 * @deprecated 5.18.1 Use History_Insights_Sidebar_Service::enqueue_scripts_and_styles() instead.
 	 */
 	public function on_admin_enqueue_scripts() {
-		wp_enqueue_script( 'simple_history_chart.js', SIMPLE_HISTORY_DIR_URL . 'js/chart.4.4.8.min.js', array( 'jquery' ), '4.4.0', true );
+		_deprecated_function( __METHOD__, '5.18.1', 'Simple_History\Services\History_Insights_Sidebar_Service::enqueue_scripts_and_styles()' );
 	}
 
 	/**
-	 * Run JS in footer.
+	 * Run JS in footer to generate chart.
+	 *
+	 * @deprecated 5.18.1 Use History_Insights_Sidebar_Service::output_admin_footer_script() instead.
 	 */
 	public function on_admin_footer() {
-		?>
-		<script>
-			/**
-			 * JavaScript for SimpleHistory_SidebarChart
-			 */
-			(function($) {
-
-				$(function() {
-
-					var ctx = $(".SimpleHistory_SidebarChart_ChartCanvas");
-
-					if ( ! ctx.length ) {
-						return;
-					}
-
-					var chartLabels =  JSON.parse( $(".SimpleHistory_SidebarChart_ChartLabels").val() );
-					var chartLabelsToDates =  JSON.parse( $(".SimpleHistory_SidebarChart_ChartLabelsToDates").val() );
-					var chartDatasetData = JSON.parse( $(".SimpleHistory_SidebarChart_ChartDatasetData").val() );
-
-					var myChart = new Chart(ctx, {
-						type: 'bar',
-						data: {
-							labels: chartLabels,
-							datasets: [{
-								label: '',
-								data: chartDatasetData,
-								backgroundColor: "rgb(210,210,210)",
-								hoverBackgroundColor: "rgb(175,175,175)",
-							}]
-						},
-						options: {
-							scales: {
-								y: {
-									ticks: {
-										beginAtZero:true
-									},
-								},
-								x: {
-									display: false
-								}
-							},
-							plugins: {
-								legend: {
-									display: false
-								},
-							},
-							onClick: clickChart
-						},
-					});
-
-					// when chart is clicked determine what value/day was clicked
-					function clickChart(e, legendItem, legend) {
-						console.log("clickChart", e, legendItem, legend);
-
-						// Get value of selected bar.
-						var label;
-						const points = myChart.getElementsAtEventForMode(e, 'nearest', { intersect: true }, true);
-						if (points.length) {
-							const firstPoint = points[0];
-							// Label e.g. "Jun 25".
-							label = myChart.data.labels[firstPoint.index];
-						}
-
-						// now we have the label which is like "July 23" or "23 juli" depending on language
-						// look for that label value in chartLabelsToDates and there we get the date in format Y-m-d
-						var labelDate;
-						for (idx in chartLabelsToDates) {
-							if (label == chartLabelsToDates[idx].label) {
-								//console.log(chartLabelsToDates[idx]);
-								labelDate = chartLabelsToDates[idx];
-							}
-						}
-
-						if (!labelDate) {
-							return;
-						}
-
-						// got a date, now reload the history/post search filter form again
-						var labelDateParts = labelDate.date.split("-"); ["2016", "07", "18"]
-
-						// show custom date range
-						$(".SimpleHistory__filters__filter--date").val("customRange").trigger("change");
-
-						// set values, same for both from and to because we only want to show one day
-						SimpleHistoryFilterDropin.$elms.filter_form.find("[name='from_aa'], [name='to_aa']").val(labelDateParts[0]);
-						SimpleHistoryFilterDropin.$elms.filter_form.find("[name='from_jj'], [name='to_jj']").val(labelDateParts[2]);
-						SimpleHistoryFilterDropin.$elms.filter_form.find("[name='from_mm'], [name='to_mm']").val(labelDateParts[1]);
-
-						SimpleHistoryFilterDropin.$elms.filter_form.trigger("submit");
-
-					}
-
-				});
-
-			})(jQuery);
-
-		</script>
-
-		<style>
-			.SimpleHistory_SidebarChart_ChartDescription {
-				margin-bottom: 0;
-			}
-		</style>
-
-		<?php
-	}
-
-	/**
-	 * Get text for stats, i.e. "X events have been logged the last Y days."
-	 *
-	 * @param int $num_days Number of days to get stats for.
-	 * @return string HTML, contains tags for bold and paragraph.
-	 */
-	protected function get_events_in_last_days_stats_text( $num_days ) {
-		$msg = sprintf(
-			// translators: 1 is number of events, 2 is number of days.
-			__( '<b>%1$s events</b> have been logged the last <b>%2$s days</b>.', 'simple-history' ),
-			number_format_i18n( Helpers::get_num_events_last_n_days( $num_days ) ),
-			number_format_i18n( $num_days )
-		);
-
-		return '<p class="SimpleHistoryQuickStats">' . $msg . '</p>';
-	}
-
-	/**
-	 * Get text for stats, i.e. "X events have been logged since plugin install."
-	 *
-	 * @return string HTML, contains tags for bold, paragraph, and span.
-	 */
-	protected function get_events_since_plugin_install_stats_text() {
-		$total_events = Helpers::get_total_logged_events_count();
-
-		$msg = sprintf(
-			// translators: 1 is number of events, 2 is description of when the plugin was installed.
-			__( '<b>%1$s events</b> have been logged since Simple History <span title="%2$s">was installed</span>.', 'simple-history' ),
-			number_format_i18n( $total_events ),
-			__( 'Since install or since the install of version 5.20 if you were already using the plugin before then.', 'simple-history' )
-		);
-
-		return '<p class="SimpleHistoryQuickStats SimpleHistoryQuickStats--totalLoggedEvents">' . $msg . '</p>';
+		_deprecated_function( __METHOD__, '5.18.1', 'Simple_History\Services\History_Insights_Sidebar_Service::output_admin_footer_script()' );
 	}
 
 	/**
 	 * Get data for chart.
 	 *
-	 * @param int $num_days Number of days to get data for.
+	 * @deprecated 5.18.1 Use History_Insights_Sidebar_Service::get_chart_data() instead.
+	 * @param int   $num_days Number of days to get data for.
+	 * @param array $num_events_per_day_for_period Cached chart data from get_quick_stats_data.
 	 * @return string HTML.
 	 */
-	protected function get_chart_data( $num_days ) {
-		ob_start();
-
-		$num_events_per_day_for_period = Helpers::get_num_events_per_day_last_n_days( $num_days );
-
-		// Period = all dates, so empty ones don't get lost.
-		$period_start_date = DateTime::createFromFormat( 'U', strtotime( "-$num_days days" ) );
-		$period_end_date = DateTime::createFromFormat( 'U', time() );
-		$interval = DateInterval::createFromDateString( '1 day' );
-
-		$period = new DatePeriod( $period_start_date, $interval, $period_end_date->add( date_interval_create_from_date_string( '1 days' ) ) );
-
-		?>
-		<!-- wrapper div so sidebar does not "jump" when loading. so annoying. -->
-		<div style="position: relative; height: 0; overflow: hidden; padding-bottom: 40%;">
-			<canvas style="position: absolute; left: 0; right: 0;" class="SimpleHistory_SidebarChart_ChartCanvas" width="100" height="40"></canvas>
-		</div>
-
-		<p class="SimpleHistory_SidebarChart_ChartDescription" style="font-style: italic; color: #777; text-align: center;">
-			<?php esc_html_e( 'Number of events per day.', 'simple-history' ); ?>
-		</p>
-
-		<?php
-		$arr_labels = array();
-		$arr_labels_to_datetime = array();
-		$arr_dataset_data = array();
-
-		foreach ( $period as $dt ) {
-			$datef = _x( 'M j', 'stats: date in rows per day chart', 'simple-history' );
-			$str_date = date_i18n( $datef, $dt->getTimestamp() );
-			$str_date_ymd = gmdate( 'Y-m-d', $dt->getTimestamp() );
-
-			// Get data for this day, if exist
-			// Day in object is in format '2014-09-07'.
-			$yearDate = $dt->format( 'Y-m-d' );
-			$day_data = wp_filter_object_list(
-				$num_events_per_day_for_period,
-				array(
-					'yearDate' => $yearDate,
-				)
-			);
-
-			$arr_labels[] = $str_date;
-
-			$arr_labels_to_datetime[] = array(
-				'label' => $str_date,
-				'date' => $str_date_ymd,
-			);
-
-			if ( $day_data ) {
-				$day_data = reset( $day_data );
-				$arr_dataset_data[] = $day_data->count;
-			} else {
-				$arr_dataset_data[] = 0;
-			}
-		}
-
-		?>
-		<input
-			type="hidden"
-			class="SimpleHistory_SidebarChart_ChartLabels"
-			value="<?php echo esc_attr( json_encode( $arr_labels ) ); ?>"
-			/>
-
-		<input
-			type="hidden"
-			class="SimpleHistory_SidebarChart_ChartLabelsToDates"
-			value="<?php echo esc_attr( json_encode( $arr_labels_to_datetime ) ); ?>"
-			/>
-
-		<input
-			type="hidden"
-			class="SimpleHistory_SidebarChart_ChartDatasetData"
-			value="<?php echo esc_attr( json_encode( $arr_dataset_data ) ); ?>"
-			/>
-
-		<?php
-
-		return ob_get_clean();
+	protected function get_chart_data( $num_days, $num_events_per_day_for_period ) {
+		_deprecated_function( __METHOD__, '5.18.1', 'Simple_History\Services\History_Insights_Sidebar_Service::get_chart_data()' );
+		return '';
 	}
 
 	/**
 	 * Get HTML for stats and summaries link.
 	 *
+	 * @deprecated 5.18.1 Use History_Insights_Sidebar_Service::get_cta_link_html() instead.
+	 * @param bool $current_user_can_manage_options If current user has manage options capability.
 	 * @return string HTML.
 	 */
-	protected function get_stats_and_summaries_link_html() {
-		$stats_page_url = Menu_Manager::get_admin_url_by_slug( 'simple_history_stats_page' );
+	protected function get_cta_link_html( $current_user_can_manage_options ) {
+		_deprecated_function( __METHOD__, '5.18.1', 'Simple_History\Services\History_Insights_Sidebar_Service::get_cta_link_html()' );
+		return '';
+	}
 
-		// Bail if no stats page url (user has no access to stats page).
-		if ( empty( $stats_page_url ) ) {
-			return '';
-		}
-
-		ob_start();
-		?>
-		<p>
-			<a class="sh-PremiumFeaturesPostbox-button" href="<?php echo esc_url( $stats_page_url ); ?>">
-				<?php esc_html_e( 'See all History Insights', 'simple-history' ); ?>
-			</a>
-		</p>
-		<?php
-		return ob_get_clean();
+	/**
+	 * Get data for the quick stats.
+	 *
+	 * @deprecated 5.18.1 Use History_Insights_Sidebar_Service::get_quick_stats_data() instead.
+	 * @param int $num_days_month Number of days to consider month, to get data for.
+	 * @param int $num_days_week Number of days to consider week, to get data for.
+	 * @return array<string,mixed> Array with stats data.
+	 */
+	protected function get_quick_stats_data( $num_days_month, $num_days_week ) {
+		_deprecated_function( __METHOD__, '5.18.1', 'Simple_History\Services\History_Insights_Sidebar_Service::get_quick_stats_data()' );
+		return [];
 	}
 
 	/**
 	 * Output HTML for sidebar.
+	 *
+	 * @deprecated 5.18.1 Use History_Insights_Sidebar_Service::output_sidebar_widget() instead.
 	 */
 	public function on_sidebar_html() {
-		$num_days = 28;
+		_deprecated_function( __METHOD__, '5.18.1', 'Simple_History\Services\History_Insights_Sidebar_Service::output_sidebar_widget()' );
+	}
 
-		?>
-		<div class="postbox sh-PremiumFeaturesPostbox">			
-			<div class="inside">
-				<h3 class="sh-PremiumFeaturesPostbox-title">
-					<?php esc_html_e( 'History Insights', 'simple-history' ); ?>
-				</h3>
+	/**
+	 * Get HTML for cache info.
+	 *
+	 * @deprecated 5.18.1 Use History_Insights_Sidebar_Service::get_cache_info_html() instead.
+	 * @param bool $current_user_can_manage_options If current user has manage options capability.
+	 * @return string HTML.
+	 */
+	protected function get_cache_info_html( $current_user_can_manage_options ) {
+		_deprecated_function( __METHOD__, '5.18.1', 'Simple_History\Services\History_Insights_Sidebar_Service::get_cache_info_html()' );
+		return '';
+	}
 
-				<?php
-				/**
-				 * Fires inside the stats sidebar box, after the headline but before any content.
-				 */
-				do_action( 'simple_history/dropin/stats/before_content' );
+	/**
+	 * Get HTML for total events logged.
+	 *
+	 * @deprecated 5.18.1 Use History_Insights_Sidebar_Service::get_total_events_logged_html() instead.
+	 * @param bool  $current_user_can_manage_options If current user has manage options capability.
+	 * @param array $stats_data Stats data.
+	 * @return string HTML.
+	 */
+	protected function get_total_events_logged_html( $current_user_can_manage_options, $stats_data ) {
+		_deprecated_function( __METHOD__, '5.18.1', 'Simple_History\Services\History_Insights_Sidebar_Service::get_total_events_logged_html()' );
+		return '';
+	}
 
-				echo wp_kses(
-					$this->get_events_in_last_days_stats_text( $num_days ),
-					array(
-						'p' => array(
-							'class' => array(),
-						),
-						'b' => array(),
-					)
-				);
+	/**
+	 * Output HTML for most active users data, i.e. avatars and usernames.
+	 *
+	 * @deprecated 5.18.1 Use History_Insights_Sidebar_Service::get_most_active_users_html() instead.
+	 * @param bool  $current_user_can_list_users If current user has list users capability.
+	 * @param array $stats_data Stats data.
+	 * @return string Avatars and usernames if user can view, empty string otherwise.
+	 */
+	protected function get_most_active_users_html( $current_user_can_list_users, $stats_data ) {
+		_deprecated_function( __METHOD__, '5.18.1', 'Simple_History\Services\History_Insights_Sidebar_Service::get_most_active_users_html()' );
+		return '';
+	}
 
-				// Output total number of events logged since plugin install.
-				echo wp_kses(
-					$this->get_events_since_plugin_install_stats_text(),
-					array(
-						'p' => array(
-							'class' => array(),
-						),
-						'b' => array(),
-						'span' => array(
-							'title' => array(),
-						),
-					)
-				);
+	/**
+	 * Get HTML for number of events per today, 7 days, 30 days.
+	 *
+	 * @deprecated 5.18.1 Use History_Insights_Sidebar_Service::get_events_per_days_stats_html() instead.
+	 * @param array $stats_data Array with stats data.
+	 * @return string
+	 */
+	protected function get_events_per_days_stats_html( $stats_data ) {
+		_deprecated_function( __METHOD__, '5.18.1', 'Simple_History\Services\History_Insights_Sidebar_Service::get_events_per_days_stats_html()' );
+		return '';
+	}
 
-				// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
-				echo $this->get_chart_data( $num_days );
+	/**
+	 * Get the SQL for the loggers that the current user is allowed to read.
+	 *
+	 * @deprecated 5.18.1
+	 * @return string
+	 */
+	protected function get_sql_loggers_in() {
+		_deprecated_function( __METHOD__, '5.18.1' );
+		return '';
+	}
 
-				// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
-				echo $this->get_stats_and_summaries_link_html();
-				?>
-			</div>
-		</div>
-		<?php
+	/**
+	 * Get the number of users that have done something today.
+	 *
+	 * @deprecated 5.18.1
+	 * @return int
+	 */
+	protected function get_num_users_today() {
+		_deprecated_function( __METHOD__, '5.18.1' );
+		return 0;
+	}
+
+	/**
+	 * Get number of other sources (not wp_user).
+	 *
+	 * @deprecated 5.18.1
+	 * @return int Number of other sources.
+	 */
+	protected function get_other_sources_count() {
+		_deprecated_function( __METHOD__, '5.18.1' );
+		return 0;
+	}
+
+	/**
+	 * Get a stat dashboard stats item.
+	 *
+	 * @deprecated 5.18.1 Use History_Insights_Sidebar_Service::get_stat_dashboard_item() instead.
+	 * @param string $stat_label The label text for the stat.
+	 * @param string $stat_value The main value text to display.
+	 * @param string $stat_subvalue Optional subvalue to display below main value.
+	 * @param string $stat_url Optional URL to make the stat label clickable.
+	 * @return string
+	 */
+	protected function get_stat_dashboard_item( $stat_label, $stat_value, $stat_subvalue = '', $stat_url = '' ) {
+		_deprecated_function( __METHOD__, '5.18.1', 'Simple_History\Services\History_Insights_Sidebar_Service::get_stat_dashboard_item()' );
+		return '';
 	}
 }

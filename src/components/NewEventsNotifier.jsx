@@ -9,11 +9,14 @@ import { clsx } from 'clsx';
 // How often to check for new events, in milliseconds.
 const UPDATE_CHECK_INTERVAL = 30000;
 
+// Maximum number of new events to display before stopping polling.
+const MAX_NEW_EVENTS_BEFORE_STOP = 10;
+
 function setDocumentTitle( newNum ) {
 	let title = document.title;
 
 	// Remove any existing number first or !, like (123) Regular title => Regular title
-	title = title.replace( /^\([\d!]+\) /, '' );
+	title = title.replace( /^\([\d!+]+\) /, '' );
 
 	if ( newNum ) {
 		title = '(' + newNum + ') ' + title;
@@ -34,12 +37,18 @@ function setDocumentTitle( newNum ) {
  * @param {Object} props
  */
 export function NewEventsNotifier( props ) {
-	const { eventsQueryParams, eventsMaxId, onReload } = props;
+	const { eventsQueryParams, eventsMaxId, eventsMaxDate, onReload } = props;
 	const [ newEventsCount, setNewEventsCount ] = useState( 0 );
+	const [ shouldPoll, setShouldPoll ] = useState( true );
 
 	useEffect( () => {
-		// Bail if no eventsQueryParams or eventsMaxId
-		if ( ! eventsQueryParams || ! eventsMaxId ) {
+		// Bail if no eventsQueryParams, eventsMaxId, or eventsMaxDate
+		if ( ! eventsQueryParams || ! eventsMaxId || ! eventsMaxDate ) {
+			return;
+		}
+
+		// Bail if polling is disabled (e.g., after reaching 10+ events)
+		if ( ! shouldPoll ) {
 			return;
 		}
 
@@ -47,7 +56,8 @@ export function NewEventsNotifier( props ) {
 			const eventsQueryParamsWithSinceId = {
 				...eventsQueryParams,
 				since_id: eventsMaxId,
-				// Remove any limitation of fields that have been added by main api request.
+				since_date: eventsMaxDate,
+				// Remove any limitation of fields that have been added by main API request.
 				_fields: null,
 			};
 
@@ -65,7 +75,15 @@ export function NewEventsNotifier( props ) {
 				const responseNewEventsCount = responseJson.new_events_count;
 
 				if ( responseNewEventsCount > 0 ) {
-					setNewEventsCount( responseNewEventsCount );
+					// Cap the count at MAX_NEW_EVENTS_BEFORE_STOP and stop polling if we reach the limit
+					if (
+						responseNewEventsCount >= MAX_NEW_EVENTS_BEFORE_STOP
+					) {
+						setNewEventsCount( MAX_NEW_EVENTS_BEFORE_STOP );
+						setShouldPoll( false );
+					} else {
+						setNewEventsCount( responseNewEventsCount );
+					}
 				}
 			} catch ( error ) {
 				// eslint-disable-next-line no-console
@@ -77,22 +95,41 @@ export function NewEventsNotifier( props ) {
 		return () => {
 			clearInterval( intervalId );
 		};
-	}, [ eventsQueryParams, eventsMaxId, newEventsCount ] );
+	}, [ eventsQueryParams, eventsMaxId, eventsMaxDate, shouldPoll ] );
 
-	const newEventsCountText = sprintf(
-		// translators: %s: number of new events
-		_n( '%s new event', '%s new events', newEventsCount, 'simple-history' ),
-		newEventsCount
-	);
+	// When we've stopped polling due to reaching limit, show "10+ new events"
+	const hasReachedLimit =
+		! shouldPoll && newEventsCount >= MAX_NEW_EVENTS_BEFORE_STOP;
+
+	const newEventsCountText = hasReachedLimit
+		? sprintf(
+				// translators: %d: maximum number of events shown before stopping polling
+				__( '%d+ new events', 'simple-history' ),
+				MAX_NEW_EVENTS_BEFORE_STOP
+		  )
+		: sprintf(
+				// translators: %s: number of new events
+				_n(
+					'%s new event',
+					'%s new events',
+					newEventsCount,
+					'simple-history'
+				),
+				newEventsCount
+		  );
 
 	// Update page title with new events count.
 	useEffect( () => {
-		setDocumentTitle( newEventsCount );
-	}, [ newEventsCount ] );
+		const titleCount = hasReachedLimit
+			? MAX_NEW_EVENTS_BEFORE_STOP + '+'
+			: newEventsCount;
+		setDocumentTitle( titleCount );
+	}, [ hasReachedLimit, newEventsCount ] );
 
 	const handleUpdateClick = () => {
 		onReload();
 		setNewEventsCount( 0 );
+		setShouldPoll( true );
 	};
 
 	return (
@@ -109,7 +146,6 @@ export function NewEventsNotifier( props ) {
 				label={ __( 'Click to load new events', 'simple-history' ) }
 				showTooltip={ true }
 				variant="tertiary"
-				style={ { width: '100%', justifyContent: 'center' } }
 			>
 				{ newEventsCountText }
 			</Button>

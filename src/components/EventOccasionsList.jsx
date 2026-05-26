@@ -5,10 +5,14 @@ import { Event } from './Event';
 export function EventOccasionsList( props ) {
 	const {
 		occasions,
+		parentEvent,
+		eventVariant,
 		isLoadingOccasions,
 		subsequent_occasions_count: subsequentOccasionsCount,
 		occasionsCountMaxReturn,
 	} = props;
+
+	const isDashboard = eventVariant === 'dashboard';
 
 	const ulClassNames = clsx( {
 		SimpleHistoryLogitems: true,
@@ -16,18 +20,34 @@ export function EventOccasionsList( props ) {
 		haveOccasionsAdded: isLoadingOccasions === false,
 	} );
 
+	const wrapClassNames = clsx( 'SimpleHistoryLogitem__occasionsItemsWrap', {
+		'is-dashboard': isDashboard,
+	} );
+
 	return (
 		<div
-			className="SimpleHistoryLogitem__occasionsItemsWrap"
-			style={ {
-				marginTop: '1rem',
-				marginLeft: '-4.5rem',
-				marginRight: '-1.5rem',
-			} }
+			className={ wrapClassNames }
+			style={
+				isDashboard
+					? { marginTop: '0.5rem' }
+					: {
+							marginTop: '1rem',
+							marginLeft: '-4.5rem',
+							marginRight: '-1.5rem',
+					  }
+			}
 		>
 			<ul className={ ulClassNames }>
-				{ occasions.map( ( event ) => (
-					<Event key={ event.id } event={ event } />
+				{ occasions.map( ( event, index ) => (
+					<Event
+						key={ event.id }
+						event={ event }
+						variant={ eventVariant }
+						loopIndex={ index }
+						prevEvent={
+							index === 0 ? parentEvent : occasions[ index - 1 ]
+						}
+					/>
 				) ) }
 
 				{ /* // If occasionsCount is more than occasionsCountMaxReturn then show a message */ }

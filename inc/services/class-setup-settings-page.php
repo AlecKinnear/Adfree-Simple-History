@@ -33,7 +33,7 @@ class Setup_Settings_Page extends Service {
 	public function trigger_actions_for_old_add_ons() {
 		// Only trigger if selected-sub-tab=message-control.
 		$menu_manager = $this->simple_history->get_menu_manager();
-		$subtab_slug = $menu_manager->get_current_sub_tab_slug();
+		$subtab_slug  = $menu_manager->get_current_sub_tab_slug();
 
 		if ( $subtab_slug !== 'message-control' ) {
 			return;
@@ -50,6 +50,7 @@ class Setup_Settings_Page extends Service {
 		/**
 		 * Fires on admin_init to trigger actions for old add-ons.
 		 */
+		// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.DynamicHooknameFound
 		do_action( $action_to_trigger );
 	}
 
@@ -64,7 +65,9 @@ class Setup_Settings_Page extends Service {
 	 */
 	public function on_admin_page_access_denied() {
 		$wp_referer = wp_get_referer();
-		$page = sanitize_text_field( wp_unslash( $_GET['page'] ?? '' ) );
+
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		$page                    = sanitize_text_field( wp_unslash( $_GET['page'] ?? '' ) );
 		$settings_menu_page_slug = Simple_History::SETTINGS_MENU_PAGE_SLUG;
 
 		// Get the currently registered settings page URL.
@@ -89,6 +92,7 @@ class Setup_Settings_Page extends Service {
 		}
 
 		// Pass on ?settings-updated if exists in requested URL.
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
 		if ( isset( $_GET['settings-updated'] ) ) {
 			$current_settings_url = add_query_arg( 'settings-updated', 'true', $current_settings_url );
 		}
@@ -134,7 +138,8 @@ class Setup_Settings_Page extends Service {
 				->set_menu_slug( Simple_History::SETTINGS_MENU_PAGE_SLUG )
 				->set_capability( Helpers::get_view_settings_capability() )
 				->set_callback( [ $this, 'settings_page_output' ] )
-				->set_redirect_to_first_child_on_load();
+				->set_redirect_to_first_child_on_load()
+				->set_order( 4 );
 
 		// Different setting depending on where main page is shown.
 		if ( in_array( $admin_page_location, [ 'top', 'bottom' ], true ) ) {
@@ -143,7 +148,7 @@ class Setup_Settings_Page extends Service {
 				->set_menu_title( _x( 'Settings', 'settings menu name', 'simple-history' ) )
 				->set_parent( Simple_History::MENU_PAGE_SLUG )
 				->set_location( 'submenu' );
-		} else if ( in_array( $admin_page_location, [ 'inside_dashboard', 'inside_tools' ], true ) ) {
+		} elseif ( in_array( $admin_page_location, [ 'inside_dashboard', 'inside_tools' ], true ) ) {
 			// If main page is shown as child to tools or dashboard then settings page is shown as child to settings main menu.
 			$settings_menu_page
 				->set_menu_title( _x( 'Simple History', 'settings menu name', 'simple-history' ) )
@@ -197,13 +202,13 @@ class Setup_Settings_Page extends Service {
 	public function add_settings() {
 		$this->clear_log_from_url_request();
 
-		$settings_section_general_id = $this->simple_history::SETTINGS_SECTION_GENERAL_ID;
-		$settings_menu_slug = $this->simple_history::SETTINGS_MENU_SLUG;
+		$settings_section_general_id   = $this->simple_history::SETTINGS_SECTION_GENERAL_ID;
+		$settings_menu_slug            = $this->simple_history::SETTINGS_MENU_SLUG;
 		$settings_general_option_group = $this->simple_history::SETTINGS_GENERAL_OPTION_GROUP;
 
 		Helpers::add_settings_section(
 			$settings_section_general_id,
-			[ __( 'General', 'simple-history' ), 'tune' ],
+			[ __( 'General', 'simple-history' ), 'tune', 'simple_history_general_section' ],
 			[ $this, 'settings_section_output' ],
 			$settings_menu_slug // Same slug as for options menu page.
 		);
@@ -286,15 +291,17 @@ class Setup_Settings_Page extends Service {
 		register_setting( $settings_general_option_group, 'simple_history_pager_size_dashboard' );
 
 		// Link/button to clear log.
-		if ( Helpers::user_can_clear_log() ) {
-			add_settings_field(
-				'simple_history_clear_log',
-				Helpers::get_settings_field_title_output( __( 'Clear log', 'simple-history' ), 'auto-delete' ),
-				[ $this, 'settings_field_clear_log' ],
-				$settings_menu_slug,
-				$settings_section_general_id
-			);
+		if ( ! Helpers::user_can_clear_log() ) {
+			return;
 		}
+
+		add_settings_field(
+			'simple_history_clear_log',
+			Helpers::get_settings_field_title_output( __( 'Clear log', 'simple-history' ), 'auto-delete' ),
+			[ $this, 'settings_field_clear_log' ],
+			$settings_menu_slug,
+			$settings_section_general_id
+		);
 	}
 
 	/**
@@ -312,7 +319,7 @@ class Setup_Settings_Page extends Service {
 	 * Settings field output for menu page location
 	 */
 	public function settings_field_menu_page_location() {
-		$location = Helpers::get_menu_page_location();
+		$location    = Helpers::get_menu_page_location();
 		$option_slug = 'simple_history_menu_page_location';
 
 		$location_options = [
@@ -335,19 +342,23 @@ class Setup_Settings_Page extends Service {
 		];
 		?>
 		<fieldset>
-			<?php foreach ( $location_options as $option ) { ?>
+			<?php
+			foreach ( $location_options as $option ) {
+				?>
 				<label>
-					<input 
+					<input
 						type="radio"
 						name="<?php echo esc_attr( $option_slug ); ?>"
 						value="<?php echo esc_attr( $option['slug'] ); ?>"
 						<?php checked( $location === $option['slug'] ); ?>
 					/>
-					
+
 					<?php echo esc_html( $option['text'] ); ?>
 				</label>
 				<br />
-			<?php } ?>
+				<?php
+			}
+			?>
 		</fieldset>
 		<?php
 	}
@@ -358,25 +369,12 @@ class Setup_Settings_Page extends Service {
 	public function settings_field_where_to_show() {
 		$show_on_dashboard = Helpers::setting_show_on_dashboard();
 		$show_in_admin_bar = Helpers::setting_show_in_admin_bar();
-		// $show_as_page_below_dashboard = Helpers::setting_show_as_page();
 		?>
 
 		<input <?php checked( $show_on_dashboard ); ?> type="checkbox" value="1" name="simple_history_show_on_dashboard" id="simple_history_show_on_dashboard" class="simple_history_show_on_dashboard" />
 		<label for="simple_history_show_on_dashboard">
 			<?php esc_html_e( 'on the dashboard', 'simple-history' ); ?>
 		</label>
-
-		
-		<?php
-		/**
-		 <br />
-		<input <?php checked( $show_as_page_below_dashboard ); ?> type="checkbox" value="1" name="simple_history_show_as_page" id="simple_history_show_as_page" class="simple_history_show_as_page" />
-		<label for="simple_history_show_as_page">
-			<?php esc_html_e( 'as a page under the dashboard menu', 'simple-history' ); ?>
-		</label>
-		<?php
-		 */
-		?>
 		
 		<br />
 
@@ -401,7 +399,7 @@ class Setup_Settings_Page extends Service {
 	 * Settings field for how many rows/items to show in log on the log page
 	 */
 	private function settings_field_number_of_items_on_log_page() {
-		$current_pager_size = Helpers::get_pager_size();
+		$current_pager_size        = Helpers::get_pager_size();
 		$pager_size_default_values = array( 5, 10, 15, 20, 25, 30, 40, 50, 75, 100 );
 
 		echo '<p>' . esc_html__( 'Number of items per page on the log page', 'simple-history' ) . '</p>';
@@ -447,7 +445,7 @@ class Setup_Settings_Page extends Service {
 	 * Settings field for how many rows/items to show in log on the dashboard
 	 */
 	private function settings_field_number_of_items_dashboard() {
-		$current_pager_size = Helpers::get_pager_size_dashboard();
+		$current_pager_size        = Helpers::get_pager_size_dashboard();
 		$pager_size_default_values = array( 5, 10, 15, 20, 25, 30, 40, 50, 75, 100 );
 
 		echo '<p>' . esc_html__( 'Number of items per page on the dashboard', 'simple-history' ) . '</p>';
@@ -501,12 +499,15 @@ class Setup_Settings_Page extends Service {
 
 		$clear_days = Helpers::get_clear_history_interval();
 
+		// Wrap in a div with id "simple_history_clear_log_info" so we can target it with link and CSS.
+		echo '<div id="simple_history_clear_log_info">';
+
 		echo '<p>';
 
 		if ( $clear_days > 0 ) {
 			printf(
 				// translators: %1$s is number of days.
-				esc_html__( 'Items in the database are automatically removed after %1$s days.', 'simple-history' ),
+				esc_html__( 'Activity older than %1$s days is automatically cleaned up to keep your database lean.', 'simple-history' ),
 				esc_html( $clear_days )
 			);
 			echo '<br>';
@@ -520,8 +521,8 @@ class Setup_Settings_Page extends Service {
 		if ( Helpers::show_promo_boxes() ) {
 			?>
 			<p>
-				<a href="https://simple-history.com/premium/?utm_source=wordpress_admin&utm_medium=Simple_History&utm_campaign=premium_upsell&utm_content=purge-settings" target="_blank" class="sh-ExternalLink">
-					<?php esc_html_e( 'Upgrade to Simple History Premium to set this to any number of days.', 'simple-history' ); ?>
+				<a href="<?php echo esc_url( Helpers::get_tracking_url( 'https://simple-history.com/premium/', 'premium_settings_purge' ) ); ?>" target="_blank" class="sh-ExternalLink">
+					<?php esc_html_e( 'Need to keep history longer? Premium extends retention to 365+ days.', 'simple-history' ); ?>
 				</a>
 			</p>
 			<?php
@@ -532,6 +533,8 @@ class Setup_Settings_Page extends Service {
 			esc_html__( 'Clear log now', 'simple-history' ),
 			esc_url( $clear_link )
 		);
+
+		echo '</div>';
 	}
 
 
@@ -584,7 +587,7 @@ class Setup_Settings_Page extends Service {
 					esc_html( $one_tab['name'] ), // 1
 					esc_html( $tab_slug ), // 2
 					esc_url( Helpers::get_settings_page_tab_url( $tab_slug ) ), // 3
-					$active_tab == $tab_slug ? 'is-active' : '', // 4
+					$active_tab === $tab_slug ? 'is-active' : '', // 4
 					wp_kses( $icon_html, $icon_html_allowed_html ) // 5
 				);
 			}
@@ -607,13 +610,15 @@ class Setup_Settings_Page extends Service {
 
 		$simple_history = Simple_History::get_instance();
 
-		$arr_settings_tabs = $simple_history->get_settings_tabs();
+		$arr_settings_tabs     = $simple_history->get_settings_tabs();
 		$arr_settings_tabs_sub = $simple_history->get_settings_tabs( 'sub' );
 
 		// Begin subnav.
 		$sub_tab_found = false;
+
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
 		$active_sub_tab = sanitize_text_field( wp_unslash( $_GET['selected-sub-tab'] ?? '' ) );
-		$active_tab = self::get_active_tab_slug();
+		$active_tab     = self::get_active_tab_slug();
 
 		// Get sub tabs for currently active tab.
 		$subtabs_for_active_tab = wp_filter_object_list(
@@ -642,8 +647,8 @@ class Setup_Settings_Page extends Service {
 					<ul class="sh-SettingsTabs-tabs">
 						<?php
 						foreach ( $subtabs_for_active_tab as $one_sub_tab ) {
-							$is_active = $active_sub_tab === $one_sub_tab['slug'];
-							$is_active_class = $is_active ? 'is-active' : '';
+							$is_active             = $active_sub_tab === $one_sub_tab['slug'];
+							$is_active_class       = $is_active ? 'is-active' : '';
 							$plug_settings_tab_url = Helpers::get_settings_page_sub_tab_url( $one_sub_tab['slug'] );
 							?>
 							<li class="sh-SettingsTabs-tab">
@@ -664,12 +669,12 @@ class Setup_Settings_Page extends Service {
 				$arr_settings_tabs_sub,
 				array(
 					'parent_slug' => $active_tab,
-					'slug' => $active_sub_tab,
+					'slug'        => $active_sub_tab,
 				)
 			);
 
 			$active_sub_tab = reset( $active_sub_tabs );
-			$sub_tab_found = is_array( $active_sub_tab );
+			$sub_tab_found  = is_array( $active_sub_tab );
 
 			if ( $sub_tab_found ) {
 				if ( is_callable( $active_sub_tab['function'] ) ) {
@@ -716,6 +721,7 @@ class Setup_Settings_Page extends Service {
 	 * @return string
 	 */
 	public static function get_active_tab_slug() {
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
 		return sanitize_text_field( wp_unslash( $_GET['selected-tab'] ?? 'settings' ) );
 	}
 
@@ -726,35 +732,39 @@ class Setup_Settings_Page extends Service {
 		// Clear the log if clear button was clicked in settings
 		// and redirect user to show message.
 		if (
-			isset( $_GET['simple_history_clear_log_nonce'] ) &&
-			wp_verify_nonce( sanitize_text_field( wp_unslash( $_GET['simple_history_clear_log_nonce'] ) ), 'simple_history_clear_log' )
+			! isset( $_GET['simple_history_clear_log_nonce'] ) ||
+			! wp_verify_nonce( sanitize_text_field( wp_unslash( $_GET['simple_history_clear_log_nonce'] ) ), 'simple_history_clear_log' )
 		) {
-			if ( Helpers::user_can_clear_log() ) {
-				$num_rows_deleted = Helpers::clear_log();
-
-				/**
-				 * Fires after the log has been cleared using
-				 * the "Clear log now" button on the settings page.
-				 *
-				 * @param int $num_rows_deleted Number of rows deleted.
-				 */
-				do_action( 'simple_history/settings/log_cleared', $num_rows_deleted );
-			}
-
-			$msg = __( 'Cleared database', 'simple-history' );
-
-			add_settings_error(
-				'simple_history_settings_clear_log',
-				'simple_history_settings_clear_log',
-				$msg,
-				'updated'
-			);
-
-			set_transient( 'settings_errors', get_settings_errors(), 30 );
-
-			$goback = esc_url_raw( add_query_arg( 'settings-updated', 'true', wp_get_referer() ) );
-			wp_redirect( $goback );
-			exit();
+			return;
 		}
+
+		if ( Helpers::user_can_clear_log() ) {
+			$num_rows_deleted = Helpers::clear_log();
+
+			/**
+			 * Fires after the log has been cleared using
+			 * the "Clear log now" button on the settings page.
+			 *
+			 * @param int $num_rows_deleted Number of rows deleted.
+			 */
+			do_action( 'simple_history/settings/log_cleared', $num_rows_deleted );
+		}
+
+		$msg = __( 'Cleared database', 'simple-history' );
+
+		add_settings_error(
+			'simple_history_settings_clear_log',
+			'simple_history_settings_clear_log',
+			$msg,
+			'updated'
+		);
+
+		set_transient( 'settings_errors', get_settings_errors(), 30 );
+
+		$goback = esc_url_raw( add_query_arg( 'settings-updated', 'true', wp_get_referer() ) );
+
+		// phpcs:ignore WordPress.Security.SafeRedirect.wp_redirect_wp_redirect
+		wp_redirect( $goback );
+		exit();
 	}
 }

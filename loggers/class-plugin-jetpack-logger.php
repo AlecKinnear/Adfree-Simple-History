@@ -20,7 +20,7 @@ class Plugin_Jetpack_Logger extends Logger {
 	 * @return array Array with plugin info.
 	 */
 	public function get_info() {
-		$arr_info = array(
+		return array(
 			'name'        => _x( 'Plugin: Jetpack Logger', 'Logger: Jetpack', 'simple-history' ),
 			'description' => _x( 'Log Jetpack settings changes', 'Logger: Jetpack', 'simple-history' ),
 			'capability'  => 'manage_options',
@@ -29,9 +29,21 @@ class Plugin_Jetpack_Logger extends Logger {
 				'module_activated'   => _x( 'Activated Jetpack module "{module_name}"', 'Logger: Jetpack', 'simple-history' ),
 				'module_deactivated' => _x( 'Deactivated Jetpack module "{module_name}"', 'Logger: Jetpack', 'simple-history' ),
 			),
+			'labels'      => array(
+				'search' => array(
+					'label'     => _x( 'Jetpack', 'Jetpack logger: search', 'simple-history' ),
+					'label_all' => _x( 'All Jetpack activity', 'Jetpack logger: search', 'simple-history' ),
+					'options'   => array(
+						_x( 'Modules activated', 'Jetpack logger: search', 'simple-history' ) => array(
+							'module_activated',
+						),
+						_x( 'Modules deactivated', 'Jetpack logger: search', 'simple-history' ) => array(
+							'module_deactivated',
+						),
+					),
+				),
+			),
 		);
-
-		return $arr_info;
 	}
 
 	/**
@@ -45,7 +57,7 @@ class Plugin_Jetpack_Logger extends Logger {
 	/**
 	 * Get array with all Jetpack modules and info about them.
 	 *
-	 * @return array Array with info.
+	 * @return array|false Array with info, or false if Jetpack methods are not available.
 	 */
 	private function get_jetpack_modules() {
 		// Check that Jetpack has the needed methods.
@@ -53,7 +65,7 @@ class Plugin_Jetpack_Logger extends Logger {
 			return false;
 		}
 
-		$available_modules = Jetpack::get_available_modules();
+		$available_modules           = Jetpack::get_available_modules();
 		$available_modules_with_info = array();
 
 		foreach ( $available_modules as $module_slug ) {
@@ -93,7 +105,7 @@ class Plugin_Jetpack_Logger extends Logger {
 	 * @return void
 	 */
 	public function on_jetpack_activate_module( $module_slug = null, $success = null ) {
-		if ( true !== $success ) {
+		if ( $success !== true ) {
 			return;
 		}
 
@@ -106,8 +118,8 @@ class Plugin_Jetpack_Logger extends Logger {
 		}
 
 		if ( $module !== [] ) {
-			$context['module_slug'] = $module_slug;
-			$context['module_name'] = $module['name'];
+			$context['module_slug']        = $module_slug;
+			$context['module_name']        = $module['name'];
 			$context['module_description'] = $module['description'];
 		}
 
@@ -124,7 +136,7 @@ class Plugin_Jetpack_Logger extends Logger {
 	 * @param bool   $success Whether the module deactivation was successful.
 	 */
 	public function on_jetpack_deactivate_module( $module_slug = null, $success = null ) {
-		if ( true !== $success ) {
+		if ( $success !== true ) {
 			return;
 		}
 
@@ -133,8 +145,8 @@ class Plugin_Jetpack_Logger extends Logger {
 		$module = $this->get_jetpack_module( $module_slug );
 
 		if ( $module !== [] ) {
-			$context['module_slug'] = $module_slug;
-			$context['module_name'] = $module['name'];
+			$context['module_slug']        = $module_slug;
+			$context['module_name']        = $module['name'];
 			$context['module_description'] = $module['description'];
 		}
 

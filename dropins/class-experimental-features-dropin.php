@@ -38,7 +38,7 @@ class Experimental_Features_Dropin extends Dropin {
 	 */
 	public function on_general_section_output() {
 		$settings_section_general_id = $this->simple_history::SETTINGS_SECTION_GENERAL_ID;
-		$settings_menu_slug = $this->simple_history::SETTINGS_MENU_SLUG;
+		$settings_menu_slug          = $this->simple_history::SETTINGS_MENU_SLUG;
 
 		add_settings_field(
 			'simple_history_experimental_features',
@@ -72,6 +72,17 @@ class Experimental_Features_Dropin extends Dropin {
 			esc_html_e( 'Please note that these features may not work as expected and could change or be removed in future updates.', 'simple-history' );
 			?>
 		</p>
+
+		<details style="margin-top: 0.5em;">
+			<summary class="description" style="cursor: pointer;">
+				<?php esc_html_e( 'View current experimental features', 'simple-history' ); ?>
+			</summary>
+			<ul class="description" style="margin-top: 0.5em; list-style: disc; padding-left: 1.5em;">
+				<li><?php esc_html_e( 'Role & Capability change logging', 'simple-history' ); ?></li>
+				<li><?php esc_html_e( 'Feature discovery bar in page header showing active and available features', 'simple-history' ); ?></li>
+				<li><?php esc_html_e( 'Event reactions — react to events with a thumbs up', 'simple-history' ); ?></li>
+			</ul>
+		</details>
 		<?php
 	}
 }

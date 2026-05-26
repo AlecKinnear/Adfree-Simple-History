@@ -30,7 +30,7 @@ class Privacy_Logger extends Logger {
 	 * @return array Array with plugin info.
 	 */
 	public function get_info() {
-		$arr_info = array(
+		return array(
 			'name'        => _x( 'Privacy Logger', 'Logger: privacy', 'simple-history' ),
 			'description' => _x( 'Log WordPress privacy related things', 'Logger: Privacy', 'simple-history' ),
 			'capability'  => 'manage_options',
@@ -43,15 +43,40 @@ class Privacy_Logger extends Logger {
 				'privacy_data_export_request_confirmed' => _x( 'Confirmed personal data export request for "{user_email}"', 'Logger: Privacy', 'simple-history' ),
 				'privacy_data_export_completed'         => _x( 'Marked personal data export request as complete for "{request_email}"', 'Logger: Privacy', 'simple-history' ),
 				'privacy_data_export_removed'           => _x( 'Removed data export request for "{user_email}"', 'Logger: Privacy', 'simple-history' ),
-				'data_erasure_request_added'             => _x( 'Added personal data erasure request for "{user_email}"', 'Logger: Privacy', 'simple-history' ),
+				'data_erasure_request_added'            => _x( 'Added personal data erasure request for "{user_email}"', 'Logger: Privacy', 'simple-history' ),
 				'data_erasure_request_confirmed'        => _x( 'Confirmed personal data erasure request for "{user_email}"', 'Logger: Privacy', 'simple-history' ),
-				'data_erasure_request_completed'          => _x( 'Marked personal data erasure request as complete for "{user_email}"', 'Logger: Privacy', 'simple-history' ),
+				'data_erasure_request_completed'        => _x( 'Marked personal data erasure request as complete for "{user_email}"', 'Logger: Privacy', 'simple-history' ),
 				'data_erasure_request_removed'          => _x( 'Removed personal data removal request for "{user_email}"', 'Logger: Privacy', 'simple-history' ),
-				'data_erasure_erasure_erased'          => _x( 'Erased personal data for "{user_email}"', 'Logger: Privacy', 'simple-history' ),
+				'data_erasure_erasure_erased'           => _x( 'Erased personal data for "{user_email}"', 'Logger: Privacy', 'simple-history' ),
+			),
+			'labels'      => array(
+				'search' => array(
+					'label'     => _x( 'Privacy', 'Privacy logger: search', 'simple-history' ),
+					'label_all' => _x( 'All privacy activity', 'Privacy logger: search', 'simple-history' ),
+					'options'   => array(
+						_x( 'Privacy page changes', 'Privacy logger: search', 'simple-history' ) => array(
+							'privacy_page_created',
+							'privacy_page_set',
+						),
+						_x( 'Data export requests', 'Privacy logger: search', 'simple-history' ) => array(
+							'privacy_data_export_requested',
+							'privacy_data_export_admin_downloaded',
+							'privacy_data_export_emailed',
+							'privacy_data_export_request_confirmed',
+							'privacy_data_export_completed',
+							'privacy_data_export_removed',
+						),
+						_x( 'Data erasure requests', 'Privacy logger: search', 'simple-history' ) => array(
+							'data_erasure_request_added',
+							'data_erasure_request_confirmed',
+							'data_erasure_request_completed',
+							'data_erasure_request_removed',
+							'data_erasure_erasure_erased',
+						),
+					),
+				),
 			),
 		);
-
-		return $arr_info;
 	}
 
 	/**
@@ -64,6 +89,12 @@ class Privacy_Logger extends Logger {
 		// Add filters to detect when a privacy page is created and when a privacy page is set..
 		// We only add the filters when the privacy page is loaded.
 		add_action( 'load-options-privacy.php', array( $this, 'on_load_privacy_page' ) );
+
+		// Capture privacy page updates outside wp-admin (WP-CLI, REST API).
+		// Admin path uses on_load_privacy_page to distinguish create vs set via $_POST.
+		// Hook both update (existing option) and add (option doesn't exist yet) variants.
+		add_action( 'update_option_wp_page_for_privacy_policy', array( $this, 'on_update_option_privacy_policy_page_non_admin' ), 10, 3 );
+		add_action( 'add_option_wp_page_for_privacy_policy', array( $this, 'on_add_option_privacy_policy_page_non_admin' ), 10, 2 );
 
 		// Add filters to detect data export related functions.
 		// We only add the filters when the tools page for export personal data is loaded.
@@ -102,7 +133,7 @@ class Privacy_Logger extends Logger {
 			'data_erasure_erasure_erased',
 			array(
 				'user_email' => $user_request->email,
-				'user_id' => $user_request->user_id,
+				'user_id'    => $user_request->user_id,
 				'request_id' => $request_id,
 			)
 		);
@@ -129,6 +160,7 @@ class Privacy_Logger extends Logger {
 	 * @param string $json_report_pathname Path to JSON report.
 	 */
 	public function on_wp_privacy_personal_data_export_file_created( $archive_pathname, $archive_url, $html_report_pathname, $request_id, $json_report_pathname ) {
+		// phpcs:ignore Squiz.PHP.CommentedOutCode.Found, Squiz.Commenting.BlockComment.NoEmptyLineBefore
 		/*
 		{
 			"ID": 55,
@@ -157,8 +189,8 @@ class Privacy_Logger extends Logger {
 			$message_key,
 			array(
 				'send_as_email' => $send_as_email,
-				'request_id' => $request_id,
-				'user_email' => $user_request->email,
+				'request_id'    => $request_id,
+				'user_email'    => $user_request->email,
 			)
 		);
 	}
@@ -200,7 +232,6 @@ class Privacy_Logger extends Logger {
 	public function on_user_request_action_confirmed( $request_id ) {
 		// Load user.php because we use functions from there.
 		if ( ! function_exists( 'get_editable_roles' ) ) {
-			/** @phpstan-ignore requireOnce.fileNotFound */
 			require_once ABSPATH . 'wp-admin/includes/user.php';
 		}
 
@@ -210,14 +241,14 @@ class Privacy_Logger extends Logger {
 		}
 
 		// User approved data export.
-		if ( 'export_personal_data' === $user_request->action_name && 'request-confirmed' === $user_request->status ) {
+		if ( $user_request->action_name === 'export_personal_data' && $user_request->status === 'request-confirmed' ) {
 			$this->info_message(
 				'privacy_data_export_request_confirmed',
 				array(
 					'user_email' => $user_request->email,
 				)
 			);
-		} elseif ( 'remove_personal_data' === $user_request->action_name && 'request-confirmed' === $user_request->status ) {
+		} elseif ( $user_request->action_name === 'remove_personal_data' && $user_request->status === 'request-confirmed' ) {
 			$this->info_message(
 				'data_erasure_request_confirmed',
 				array(
@@ -253,29 +284,29 @@ class Privacy_Logger extends Logger {
 			return;
 		}
 
-		if ( ! $update && 'export_personal_data' === $user_request->action_name && 'request-pending' && $user_request->status ) {
+		if ( ! $update && $user_request->action_name === 'export_personal_data' && 'request-pending' && $user_request->status ) {
 			// Add Data Export Request.
 			// An email will be sent to the user at this email address asking them to verify the request.
 			// Notice message in admin is "Confirmation request initiated successfully.".
 			$this->info_message(
 				'privacy_data_export_requested',
 				array(
-					'user_email' => $user_request->email,
+					'user_email'              => $user_request->email,
 					// phpcs:ignore WordPress.Security.NonceVerification.Missing
 					'send_confirmation_email' => isset( $_POST['send_confirmation_email'] ) ? 1 : 0,
 				)
 			);
-		} elseif ( ! $update && 'remove_personal_data' === $user_request->action_name && 'request-pending' === $user_request->status ) {
+		} elseif ( ! $update && $user_request->action_name === 'remove_personal_data' && $user_request->status === 'request-pending' ) {
 			// Send request to user to remove user data.
 			$this->info_message(
 				'data_erasure_request_added',
 				array(
-					'user_email' => $user_request->email,
+					'user_email'              => $user_request->email,
 					// phpcs:ignore WordPress.Security.NonceVerification.Missing
 					'send_confirmation_email' => isset( $_POST['send_confirmation_email'] ) ? 1 : 0,
 				)
 			);
-		} elseif ( $update && 'remove_personal_data' === $user_request->action_name && 'request-completed' === $user_request->status ) {
+		} elseif ( $update && $user_request->action_name === 'remove_personal_data' && $user_request->status === 'request-completed' ) {
 			// Admin clicked "Complete request" in admin.
 			$this->info_message(
 				'data_erasure_request_completed',
@@ -314,18 +345,20 @@ class Privacy_Logger extends Logger {
 			return;
 		}
 
-		// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
+		// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized, WordPress.Security.NonceVerification.Recommended
 		$action = wp_unslash( $_REQUEST['action'] ?? null );
 
-		if ( $user_request && 'delete' === $action ) {
-			// Looks like "Remove request" action.
-			$this->info_message(
-				'data_erasure_request_removed',
-				array(
-					'user_email' => $user_request->email,
-				)
-			);
+		if ( ! $user_request || $action !== 'delete' ) {
+			return;
 		}
+
+		// Looks like "Remove request" action.
+		$this->info_message(
+			'data_erasure_request_removed',
+			array(
+				'user_email' => $user_request->email,
+			)
+		);
 	}
 
 	/**
@@ -356,18 +389,20 @@ class Privacy_Logger extends Logger {
 			return;
 		}
 
-		// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
+		// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized, WordPress.Security.NonceVerification.Recommended
 		$action = wp_unslash( $_REQUEST['action'] ?? null );
 
-		if ( $user_request && 'delete' === $action ) {
-			// Looks like "Remove request" action.
-			$this->info_message(
-				'privacy_data_export_removed',
-				array(
-					'user_email' => $user_request->email,
-				)
-			);
+		if ( ! $user_request || $action !== 'delete' ) {
+			return;
 		}
+
+		// Looks like "Remove request" action.
+		$this->info_message(
+			'privacy_data_export_removed',
+			array(
+				'user_email' => $user_request->email,
+			)
+		);
 	}
 
 	/**
@@ -389,20 +424,21 @@ class Privacy_Logger extends Logger {
 	 * @return void
 	 */
 	public function on_admin_action_complete() {
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
 		$request_ids = isset( $_REQUEST['request_id'] ) ? wp_parse_id_list( wp_unslash( $_REQUEST['request_id'] ) ) : array();
 
 		foreach ( $request_ids as $request_id ) {
 			$request = wp_get_user_request( $request_id );
 
-			if ( false === $request ) {
+			if ( $request === false ) {
 				continue;
 			}
 
 			$this->info_message(
 				'privacy_data_export_completed',
 				array(
-					'request_id' => $request_id,
-					'request_email' => $request->email,
+					'request_id'     => $request_id,
+					'request_email'  => $request->email,
 					'request_status' => $request->status,
 				)
 			);
@@ -418,18 +454,80 @@ class Privacy_Logger extends Logger {
 	}
 
 	/**
+	 * Log a privacy page update from a non-admin context (WP-CLI, REST API).
+	 * Admin updates are handled by on_load_privacy_page() which distinguishes
+	 * create vs set via $_POST['action'].
+	 *
+	 * Fires from update_option_wp_page_for_privacy_policy (option already exists).
+	 *
+	 * @param mixed  $old_value Previous option value.
+	 * @param mixed  $value     New option value (the page ID).
+	 * @param string $option    Option name.
+	 */
+	public function on_update_option_privacy_policy_page_non_admin( $old_value, $value, $option ) {
+		if ( is_admin() ) {
+			return;
+		}
+
+		$this->log_privacy_page_set( $old_value, $value );
+	}
+
+	/**
+	 * Log when the privacy page option is first created (via add_option).
+	 * This happens when update_option() is called but the option doesn't exist yet.
+	 *
+	 * Fires from add_option_wp_page_for_privacy_policy.
+	 *
+	 * @param string $option Option name.
+	 * @param mixed  $value  New option value (the page ID).
+	 */
+	public function on_add_option_privacy_policy_page_non_admin( $option, $value ) {
+		if ( is_admin() ) {
+			return;
+		}
+
+		$this->log_privacy_page_set( 0, $value );
+	}
+
+	/**
+	 * Shared logging logic for non-admin privacy page set events.
+	 *
+	 * @param mixed $old_value Previous value (0 when option didn't exist before).
+	 * @param mixed $value     New page ID.
+	 */
+	private function log_privacy_page_set( $old_value, $value ) {
+		$post           = get_post( $value );
+		$new_post_title = '';
+
+		if ( is_a( $post, 'WP_Post' ) ) {
+			$new_post_title = $post->post_title;
+		}
+
+		$this->info_message(
+			'privacy_page_set',
+			array(
+				'prev_post_id'   => $old_value,
+				'new_post_id'    => $value,
+				'new_post_title' => $new_post_title,
+			)
+		);
+	}
+
+	/**
 	 * Fired when the privacy admin page is loaded.
-	 * Page is something like
-	 * http://wordpress-stable.test/wp-admin/options-privacy.php
+	 * Detects privacy page creation or selection via $_POST['action'].
+	 * Page is something like http://example.test/wp-admin/options-privacy.php
+	 *
+	 * @return void
 	 */
 	public function on_load_privacy_page() {
 		// phpcs:ignore WordPress.Security.NonceVerification.Missing, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
-		$action = wp_unslash( $_POST['action'] ?? '' );
+		$action      = wp_unslash( $_POST['action'] ?? '' );
 		$option_name = 'wp_page_for_privacy_policy';
 
-		if ( 'create-privacy-page' === $action ) {
+		if ( $action === 'create-privacy-page' ) {
 			add_action( "update_option_{$option_name}", array( $this, 'on_update_option_create_privacy_page' ), 10, 3 );
-		} elseif ( 'set-privacy-page' === $action ) {
+		} elseif ( $action === 'set-privacy-page' ) {
 			add_action( "update_option_{$option_name}", array( $this, 'on_update_option_set_privacy_page' ), 10, 3 );
 		}
 	}
@@ -442,7 +540,7 @@ class Privacy_Logger extends Logger {
 	 * @param string $option    Option name.
 	 */
 	public function on_update_option_create_privacy_page( $old_value, $value, $option ) {
-		$post = get_post( $value );
+		$post           = get_post( $value );
 		$new_post_title = '';
 
 		if ( is_a( $post, 'WP_Post' ) ) {
@@ -452,8 +550,8 @@ class Privacy_Logger extends Logger {
 		$this->info_message(
 			'privacy_page_created',
 			array(
-				'prev_post_id' => $old_value,
-				'new_post_id' => $value,
+				'prev_post_id'   => $old_value,
+				'new_post_id'    => $value,
 				'new_post_title' => $new_post_title,
 			)
 		);
@@ -468,7 +566,7 @@ class Privacy_Logger extends Logger {
 	 */
 	public function on_update_option_set_privacy_page( $old_value, $value, $option ) {
 
-		$post = get_post( $value );
+		$post           = get_post( $value );
 		$new_post_title = '';
 
 		if ( is_a( $post, 'WP_Post' ) ) {
@@ -478,8 +576,8 @@ class Privacy_Logger extends Logger {
 		$this->info_message(
 			'privacy_page_set',
 			array(
-				'prev_post_id' => $old_value,
-				'new_post_id' => $value,
+				'prev_post_id'   => $old_value,
+				'new_post_id'    => $value,
 				'new_post_title' => $new_post_title,
 			)
 		);

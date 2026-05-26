@@ -1,11 +1,11 @@
 import apiFetch from '@wordpress/api-fetch';
 import { useEffect, useState } from '@wordpress/element';
+import { applyFilters } from '@wordpress/hooks';
 import { __ } from '@wordpress/i18n';
 import { addQueryArgs } from '@wordpress/url';
 import clsx from 'clsx';
 import { useInView } from 'react-intersection-observer';
-import { EventDate } from './EventDate';
-import { EventInitiatorName } from './EventInitiatorName';
+import { EventsCompactList } from './EventsCompactList';
 import RefreshImage from '../../css/icons/refresh_24dp_5F6368_FILL0_wght400_GRAD0_opsz48.svg';
 import './AdminBarQuickView.scss';
 
@@ -31,58 +31,6 @@ const EventsCompactListLoadingSkeleton = () => {
 				) ) }
 			</ul>
 		</>
-	);
-};
-
-/**
- * One compact event for the compact event list in the admin bar.
- * @param {Object} props
- * @return {Object} React element
- */
-const CompactEvent = ( props ) => {
-	const { event } = props;
-
-	return (
-		<MenuBarLiItem
-			href={ event.link }
-			className="SimpleHistory-adminBarEventsList-item"
-			title={ __( 'View event details', 'simple-history' ) }
-		>
-			<div className="SimpleHistory-adminBarEventsList-item-dot"></div>
-			<div className="SimpleHistory-adminBarEventsList-item-content">
-				<div className="SimpleHistory-adminBarEventsList-item-content-meta">
-					<EventInitiatorName
-						event={ event }
-						eventVariant="compact"
-					/>
-					<EventDate event={ event } eventVariant="compact" />
-				</div>
-				<div className="SimpleHistory-adminBarEventsList-item-content-message">
-					<p>{ event.message }</p>
-				</div>
-			</div>
-		</MenuBarLiItem>
-	);
-};
-
-const EventsCompactList = ( props ) => {
-	const { events, isLoading } = props;
-
-	if ( isLoading ) {
-		return <EventsCompactListLoadingSkeleton />;
-	}
-
-	// Events not loaded yet.
-	if ( events.length === 0 ) {
-		return null;
-	}
-
-	return (
-		<ul className="SimpleHistory-adminBarEventsList">
-			{ events.map( ( event ) => (
-				<CompactEvent key={ event.id } event={ event } />
-			) ) }
-		</ul>
 	);
 };
 
@@ -114,6 +62,57 @@ const AdminBarQuickView = () => {
 	const [ isLoading, setIsLoading ] = useState( false );
 	const [ events, setEvents ] = useState( [] );
 	const [ reloadTime, setReloadTime ] = useState( null );
+	const [ filterMode, setFilterMode ] = useState( 'all' );
+
+	const viewHistoryURL = window.simpleHistoryAdminBar.adminPageUrl;
+	const settingsURL = window.simpleHistoryAdminBar.viewSettingsUrl;
+
+	const userCanViewHistory = Boolean(
+		Number( window.simpleHistoryAdminBar.currentUserCanViewHistory )
+	);
+
+	const currentPostId = Number(
+		window.simpleHistoryAdminBar.currentPostId || 0
+	);
+	const currentPostTitle =
+		window.simpleHistoryAdminBar.currentPostTitle || '';
+
+	const isThisPageMode = filterMode === 'this-page' && currentPostId > 0;
+
+	/**
+	 * Filter whether to show the premium teaser for "This page" mode.
+	 * Premium add-on returns false to show filtered events instead.
+	 *
+	 * @param {boolean} showTeaser Whether to show the teaser. Default true when in this-page mode.
+	 * @param {Object}  context    Context object with currentPostId and currentPostTitle.
+	 */
+	const showThisPageTeaser = applyFilters(
+		'simpleHistory.adminBar.showThisPageTeaser',
+		isThisPageMode,
+		{ currentPostId, currentPostTitle }
+	);
+
+	/**
+	 * Filter the "View full history" URL.
+	 * Premium add-on can add context filter parameters.
+	 *
+	 * @param {string} url     The default history page URL.
+	 * @param {Object} context Context object with filterMode, currentPostId, and currentPostTitle.
+	 */
+	const viewFullHistoryHref = applyFilters(
+		'simpleHistory.adminBar.viewFullHistoryUrl',
+		viewHistoryURL,
+		{ filterMode, currentPostId, currentPostTitle }
+	);
+
+	const viewFullHistoryLink = userCanViewHistory ? (
+		<a
+			href={ viewFullHistoryHref }
+			className="SimpleHistory-adminBarEventsList-actions-settings"
+		>
+			{ __( 'View full history', 'simple-history' ) }
+		</a>
+	) : null;
 
 	// https://www.npmjs.com/package/react-intersection-observer
 	const { ref, inView } = useInView( {} );
@@ -131,8 +130,15 @@ const AdminBarQuickView = () => {
 		setReloadTime( Date.now() );
 	}, [ inView, reloadTime ] );
 
+	// Re-fetch when filterMode changes (only when not showing teaser).
+	useEffect( () => {
+		if ( reloadTime !== null && ! showThisPageTeaser ) {
+			setReloadTime( Date.now() );
+		}
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [ filterMode ] );
+
 	// Load events when the reloadTime is set or updated.
-	// For example when submenu becomes visible or when reload button is pressed.
 	useEffect( () => {
 		if ( reloadTime === null ) {
 			return;
@@ -141,10 +147,23 @@ const AdminBarQuickView = () => {
 		async function fetchEntries() {
 			setIsLoading( true );
 
-			const eventsQueryParams = {
+			const defaultParams = {
 				per_page: 5,
 				dates: 'lastdays:7',
 			};
+
+			/**
+			 * Filter the events query parameters.
+			 * Premium add-on can modify these to add context filtering.
+			 *
+			 * @param {Object} params  Default query parameters.
+			 * @param {Object} context Context object with filterMode and currentPostId.
+			 */
+			const eventsQueryParams = applyFilters(
+				'simpleHistory.adminBar.eventsQueryParams',
+				defaultParams,
+				{ filterMode, currentPostId }
+			);
 
 			try {
 				const eventsResponse = await apiFetch( {
@@ -167,22 +186,7 @@ const AdminBarQuickView = () => {
 		}
 
 		fetchEntries();
-	}, [ reloadTime ] );
-
-	const viewHistoryURL = window.simpleHistoryAdminBar.adminPageUrl;
-	const settingsURL = window.simpleHistoryAdminBar.viewSettingsUrl;
-
-	const userCanViewHistory = Boolean(
-		Number( window.simpleHistoryAdminBar.currentUserCanViewHistory )
-	);
-	const viewFullHistoryLink = userCanViewHistory ? (
-		<a
-			href={ viewHistoryURL }
-			className="SimpleHistory-adminBarEventsList-actions-settings"
-		>
-			View full history
-		</a>
-	) : null;
+	}, [ reloadTime, currentPostId, filterMode ] );
 
 	const handleReloadButtonClick = () => {
 		setReloadTime( Date.now() );
@@ -203,50 +207,126 @@ const AdminBarQuickView = () => {
 		<a href={ settingsURL }>{ __( 'Settings', 'simple-history' ) }</a>
 	);
 
+	const filterToggle =
+		currentPostId > 0 ? (
+			<div className="SimpleHistory-adminBarQuickView-filterToggle">
+				<button
+					className={ clsx(
+						'SimpleHistory-adminBarQuickView-filterToggle-button',
+						{ 'is-active': filterMode === 'all' }
+					) }
+					onClick={ () => setFilterMode( 'all' ) }
+				>
+					{ __( 'All history', 'simple-history' ) }
+				</button>
+				<button
+					className={ clsx(
+						'SimpleHistory-adminBarQuickView-filterToggle-button',
+						{ 'is-active': filterMode === 'this-page' }
+					) }
+					onClick={ () => setFilterMode( 'this-page' ) }
+				>
+					{ __( 'This page', 'simple-history' ) }
+				</button>
+			</div>
+		) : null;
+
+	/**
+	 * Filter the info text shown above the events list.
+	 * Premium add-on can change this for "this page" mode.
+	 *
+	 * @param {string} text    Default info text.
+	 * @param {Object} context Context object with filterMode, currentPostId, and currentPostTitle.
+	 */
+	const infoText = applyFilters(
+		'simpleHistory.adminBar.infoText',
+		__( 'Events from the last 7 days', 'simple-history' ),
+		{ filterMode, currentPostId, currentPostTitle }
+	);
+
+	const showEmptyState = ! isLoading && events.length === 0;
+
+	const thisPageTeaser = (
+		<li>
+			<div className="SimpleHistory-adminBarQuickView-premiumTeaser">
+				<p className="SimpleHistory-adminBarQuickView-premiumTeaser-heading">
+					{ __( 'History for this page', 'simple-history' ) }
+				</p>
+				<p className="SimpleHistory-adminBarQuickView-premiumTeaser-description">
+					{ __(
+						'Filter the log to show only events for the page you\'re viewing.',
+						'simple-history'
+					) }
+				</p>
+				<a
+					href="https://simple-history.com/add-ons/premium/?utm_source=wpadmin&utm_medium=adminbar&utm_campaign=this-page-filter"
+					className="SimpleHistory-adminBarQuickView-premiumTeaser-link"
+					target="_blank"
+					rel="noopener noreferrer"
+				>
+					{ __( 'Available with Premium', 'simple-history' ) }
+					<span aria-hidden="true"> &rarr;</span>
+				</a>
+			</div>
+		</li>
+	);
+
 	return (
 		<li ref={ ref }>
 			<ul>
-				<div className="SimpleHistory-adminBarEventsList-actions">
-					{ reloadButton }
-				</div>
+				{ currentPostId > 0 ? (
+					<li>
+						<div className="SimpleHistory-adminBarQuickView-tabs">
+							{ filterToggle }
+						</div>
+					</li>
+				) : null }
 
-				<div
-					style={ {
-						margin: '1em 1em 0 1em',
-					} }
-				>
-					{ __( 'Events from the last 7 days', 'simple-history' ) }
-				</div>
+				{ showThisPageTeaser ? (
+					thisPageTeaser
+				) : (
+					<>
+						<li>
+							<div className="SimpleHistory-adminBarQuickView-infoText">
+								{ infoText }
+							</div>
+						</li>
 
-				<EventsCompactList events={ events } isLoading={ isLoading } />
+						{ isLoading ? (
+							<EventsCompactListLoadingSkeleton />
+						) : (
+							<>
+								<EventsCompactList
+									events={ events }
+									isLoading={ isLoading }
+								/>
+								{ showEmptyState && (
+									<li>
+										<div className="SimpleHistory-adminBarQuickView-emptyState">
+											{ __(
+												'No events found.',
+												'simple-history'
+											) }
+										</div>
+									</li>
+								) }
+							</>
+						) }
+					</>
+				) }
 
-				<div className="SimpleHistory-adminBarEventsList-actions">
-					{ viewFullHistoryLink }
-					{ settingsLink }
-				</div>
+				<li>
+					<div className="SimpleHistory-adminBarEventsList-actions">
+						{ viewFullHistoryLink }
+						<div className="SimpleHistory-adminBarEventsList-actions-right">
+							{ reloadButton }
+							{ settingsLink }
+						</div>
+					</div>
+				</li>
 			</ul>
 		</li>
 	);
-	/* 
-	// Admin bar can't handle multiple lines of text, so we need to use a submenu.
-	// We render the react app to the ul items and then we can add li items in the React render.
-	<ul
-		role="menu"
-		id="wp-admin-bar-simple-history-react-root-group"
-		class="ab-submenu"
-		>
-		<li role="group" id="wp-admin-bar-simple-history-subnode-3">
-			<div class="ab-item ab-empty-item" role="menuitem">
-			This is a subnode to the group
-			</div>
-		</li>
-		<li role="group" id="wp-admin-bar-simple-history-subnode-4">
-			<div class="ab-item ab-empty-item" role="menuitem">
-			This is another subnode to the group
-			</div>
-		</li>
-		</ul>
-	*/
 };
 
 export default AdminBarQuickView;

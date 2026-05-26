@@ -54,12 +54,12 @@ class Plugin_Updater {
 	 * @param string $api_url     The API URL to the update server.
 	 */
 	public function __construct( $plugin_id, $plugin_slug, $version, $api_url ) {
-		$this->plugin_id     = $plugin_id;
-		$this->plugin_slug   = $plugin_slug;
-		$this->version       = $version;
-		$this->api_url       = $api_url;
+		$this->plugin_id   = $plugin_id;
+		$this->plugin_slug = $plugin_slug;
+		$this->version     = $version;
+		$this->api_url     = $api_url;
 
-		$this->cache_key      = 'simple_history_updater_cache_' . str_replace( '-', '_', $this->plugin_slug );
+		$this->cache_key             = 'simple_history_updater_cache_' . str_replace( '-', '_', $this->plugin_slug );
 		$this->cache_key_plugin_info = 'simple_history_updater_info_cache_' . str_replace( '-', '_', $this->plugin_slug );
 
 		add_filter( 'plugins_api', array( $this, 'on_plugins_api_handle_plugin_info' ), 20, 3 );
@@ -98,8 +98,8 @@ class Plugin_Updater {
 
 		$remote = get_transient( $this->cache_key );
 
-		if ( false !== $remote && $this->cache_allowed ) {
-			if ( 'error' === $remote ) {
+		if ( $remote !== false && $this->cache_allowed ) {
+			if ( $remote === 'error' ) {
 				return false;
 			}
 
@@ -115,16 +115,17 @@ class Plugin_Updater {
 			$this->api_url . '/update',
 		);
 
+		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.wp_remote_get_wp_remote_get
 		$remote = wp_remote_get(
 			$url,
 			[
-				'timeout' => 10,
+				'timeout' => 3,
 			]
 		);
 
 		if (
 			is_wp_error( $remote )
-			|| 200 !== wp_remote_retrieve_response_code( $remote )
+			|| wp_remote_retrieve_response_code( $remote ) !== 200
 			|| empty( wp_remote_retrieve_body( $remote ) )
 		) {
 			// Cache errors for 10 minutes.
@@ -153,7 +154,7 @@ class Plugin_Updater {
 	 */
 	public function on_plugins_api_handle_plugin_info( $result, $action, $args ) {
 		// Bail if this is not about getting plugin information.
-		if ( 'plugin_information' !== $action ) {
+		if ( $action !== 'plugin_information' ) {
 			return $result;
 		}
 
@@ -171,8 +172,10 @@ class Plugin_Updater {
 		// Here: Get plugin info from simple-history.com.
 		// URLs for a plugin will be like:
 		// https://simple-history.com/wp-json/simple-history/v1/plugins/simple-history-extended-settings.
-		$api_url_base = 'https://simple-history.com/wp-json/simple-history/v1/plugins/';
+		$api_url_base   = 'https://simple-history.com/wp-json/simple-history/v1/plugins/';
 		$api_for_plugin = $api_url_base . $this->plugin_slug;
+
+		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.wp_remote_get_wp_remote_get
 		$plugin_info_response = wp_remote_get( $api_for_plugin );
 
 		// Bail if response was not ok.
@@ -188,9 +191,9 @@ class Plugin_Updater {
 		}
 
 		// Some things must be arrays, not objects.
-		$remote_json->sections = (array) $remote_json->sections;
-		$remote_json->tags = (array) $remote_json->tags;
-		$remote_json->banners = (array) $remote_json->banners;
+		$remote_json->sections     = (array) $remote_json->sections;
+		$remote_json->tags         = (array) $remote_json->tags;
+		$remote_json->banners      = (array) $remote_json->banners;
 		$remote_json->contributors = (array) $remote_json->contributors;
 
 		// Make all contributors arrays, not objects.
@@ -265,16 +268,20 @@ class Plugin_Updater {
 	 */
 	public function purge( $upgrader, $options ) {
 		if (
-			$this->cache_allowed
-			&& 'update' === $options['action']
-			&& 'plugin' === $options['type']
-			&& ! empty( $options['plugins'] )
+			! $this->cache_allowed
+			|| $options['action'] !== 'update'
+			|| $options['type'] !== 'plugin'
+			|| empty( $options['plugins'] )
 		) {
-			foreach ( $options['plugins'] as $plugin ) {
-				if ( $plugin === $this->plugin_id ) {
-					delete_transient( $this->cache_key );
-				}
+			return;
+		}
+
+		foreach ( $options['plugins'] as $plugin ) {
+			if ( $plugin !== $this->plugin_id ) {
+				continue;
 			}
+
+			delete_transient( $this->cache_key );
 		}
 	}
 }

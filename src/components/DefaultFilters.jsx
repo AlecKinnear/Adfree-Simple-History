@@ -1,17 +1,21 @@
 import {
 	BaseControl,
+	Button,
 	DatePicker,
 	Flex,
 	FlexItem,
 	SelectControl,
+	__experimentalInputControl as InputControl,
+	__experimentalInputControlPrefixWrapper as InputControlPrefixWrapper,
 } from '@wordpress/components';
 import { getSettings as getDateSettings } from '@wordpress/date';
-import { useEffect } from '@wordpress/element';
+import { Fragment, useEffect, useRef } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
+import { Icon, search } from '@wordpress/icons';
 
 export function DefaultFilters( props ) {
 	const {
-		dateOptions,
+		dateOptionGroups,
 		selectedDateOption,
 		setSelectedDateOption,
 		searchText,
@@ -20,7 +24,70 @@ export function DefaultFilters( props ) {
 		setSelectedCustomDateFrom,
 		selectedCustomDateTo,
 		setSelectedCustomDateTo,
+		onReload,
+		children,
 	} = props;
+
+	const searchInputRef = useRef( null );
+	const previousFocusRef = useRef( null );
+	const focusedViaShortcutRef = useRef( false );
+
+	// "/" focuses the search input, Escape restores focus to the previous element.
+	useEffect( () => {
+		function handleKeyDown( event ) {
+			if ( event.key === 'Escape' ) {
+				if ( document.activeElement === searchInputRef.current ) {
+					if (
+						focusedViaShortcutRef.current &&
+						previousFocusRef.current &&
+						previousFocusRef.current !== document.body
+					) {
+						previousFocusRef.current.focus();
+					} else {
+						searchInputRef.current.blur();
+					}
+					previousFocusRef.current = null;
+					focusedViaShortcutRef.current = false;
+				}
+				return;
+			}
+
+			if ( event.key !== '/' ) {
+				return;
+			}
+
+			const tag = event.target.tagName;
+			if (
+				tag === 'INPUT' ||
+				tag === 'TEXTAREA' ||
+				tag === 'SELECT' ||
+				event.target.isContentEditable
+			) {
+				return;
+			}
+
+			event.preventDefault();
+			previousFocusRef.current = document.activeElement;
+			focusedViaShortcutRef.current = true;
+			searchInputRef.current?.focus();
+		}
+
+		// Once the user leaves the search input (tab, click elsewhere),
+		// the shortcut context is over — clear the return point.
+		function handleFocusOut( event ) {
+			if ( event.target === searchInputRef.current ) {
+				previousFocusRef.current = null;
+				focusedViaShortcutRef.current = false;
+			}
+		}
+
+		document.addEventListener( 'keydown', handleKeyDown );
+		document.addEventListener( 'focusout', handleFocusOut );
+		return () => {
+			document.removeEventListener( 'keydown', handleKeyDown );
+			document.removeEventListener( 'focusout', handleFocusOut );
+		};
+	}, [] );
 
 	// Future dates are invalid.
 	const isInvalidDate = ( date ) => {
@@ -107,37 +174,85 @@ export function DefaultFilters( props ) {
 
 	return (
 		<>
-			<p>
-				<div className="SimpleHistory__filters__filterLabel">
-					{ __( 'Dates', 'simple-history' ) }
-				</div>
-				<div style={ { display: 'inline-block', width: '310px' } }>
-					<SelectControl
-						__nextHasNoMarginBottom
-						options={ dateOptions }
-						value={ selectedDateOption }
-						onChange={ ( value ) => setSelectedDateOption( value ) }
-					/>
-				</div>
-			</p>
+			<div className="SimpleHistory-filters__defaultRow">
+				<InputControl
+					ref={ searchInputRef }
+					type="search"
+					value={ searchText }
+					onChange={ ( value ) => setSearchText( value || '' ) }
+					placeholder={ __( 'Search events', 'simple-history' ) }
+					aria-label={ __( 'Search events', 'simple-history' ) }
+					prefix={
+						<InputControlPrefixWrapper>
+							<Icon
+								icon={ search }
+								size={ 20 }
+								style={ { color: '#646970' } }
+							/>
+						</InputControlPrefixWrapper>
+					}
+					suffix={
+						<kbd
+							className="SimpleHistory-filters__searchShortcut"
+							title={ __(
+								'Press / to search',
+								'simple-history'
+							) }
+							aria-hidden="true"
+						>
+							/
+						</kbd>
+					}
+					__next40pxDefaultSize
+					className="SimpleHistory-filters__searchControl"
+				/>
+
+				<SelectControl
+					__nextHasNoMarginBottom
+					__next40pxDefaultSize
+					value={ selectedDateOption }
+					onChange={ ( value ) => setSelectedDateOption( value ) }
+					className="SimpleHistory-filters__dateSelect"
+				>
+					{ dateOptionGroups.map( ( group, groupIndex ) => {
+						const groupKey =
+							group.label || `__ungrouped_${ groupIndex }`;
+						const options = group.options.map( ( option ) => (
+							<option key={ option.value } value={ option.value }>
+								{ option.label }
+							</option>
+						) );
+
+						if ( ! group.label ) {
+							return (
+								<Fragment key={ groupKey }>
+									{ options }
+								</Fragment>
+							);
+						}
+
+						return (
+							<optgroup key={ groupKey } label={ group.label }>
+								{ options }
+							</optgroup>
+						);
+					} ) }
+				</SelectControl>
+
+				<Button
+					variant="secondary"
+					onClick={ onReload }
+					__next40pxDefaultSize
+				>
+					{ __( 'Search events', 'simple-history' ) }
+				</Button>
+
+				{ children }
+			</div>
 
 			{ selectedDateOption === 'customRange' ? (
 				<CustomDateRange />
 			) : null }
-
-			<p>
-				<div className="SimpleHistory__filters__filterLabel">
-					{ __( 'Containing words', 'simple-history' ) }
-				</div>
-				<input
-					type="search"
-					className="SimpleHistoryFilterDropin-searchInput"
-					value={ searchText }
-					onChange={ ( event ) =>
-						setSearchText( event.target.value )
-					}
-				/>
-			</p>
 		</>
 	);
 }

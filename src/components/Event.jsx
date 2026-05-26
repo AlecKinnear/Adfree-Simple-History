@@ -1,9 +1,11 @@
 import { clsx } from 'clsx';
 import { EventActionsButton } from './EventActionsButton';
+import { EventActionLinks } from './EventActionLinks';
 import { EventDetails } from './EventDetails';
 import { EventHeader } from './EventHeader';
 import { EventInitiatorImage } from './EventInitiator';
 import { EventOccasions } from './EventOccasions';
+import { EventReactions, useEventReactions } from './EventReactions';
 import { EventText } from './EventText';
 import { EventSeparator } from './EventSeparator';
 
@@ -16,16 +18,15 @@ export function Event( props ) {
 	const {
 		event,
 		variant = 'normal',
-		mapsApiKey,
-		hasExtendedSettingsAddOn,
-		hasPremiumAddOn,
 		isNewAfterFetchNewEvents,
-		eventsSettingsPageURL,
-		eventsAdminPageURL,
 		prevEvent,
 		nextEvent,
 		loopIndex,
+		isCenterEvent,
+		isSurroundingEventsMode,
 	} = props;
+
+	const reactionState = useEventReactions( event );
 
 	const containerClassNames = clsx(
 		'SimpleHistoryLogitem',
@@ -36,6 +37,7 @@ export function Event( props ) {
 		{
 			'SimpleHistoryLogitem--is-sticky': event.sticky,
 			'SimpleHistoryLogitem--newRowSinceReload': isNewAfterFetchNewEvents,
+			'SimpleHistoryLogitem--is-center-event': isCenterEvent,
 		}
 	);
 
@@ -57,28 +59,25 @@ export function Event( props ) {
 				<EventHeader
 					event={ event }
 					eventVariant={ variant }
-					mapsApiKey={ mapsApiKey }
-					hasExtendedSettingsAddOn={ hasExtendedSettingsAddOn }
-					hasPremiumAddOn={ hasPremiumAddOn }
+					isSurroundingEventsMode={ isSurroundingEventsMode }
 				/>
 
 				<EventText event={ event } eventVariant={ variant } />
 
-				<EventDetails event={ event } eventVariant={ variant } />
+				{ variant !== 'dashboard' && (
+					<EventDetails event={ event } eventVariant={ variant } />
+				) }
 
-				<EventOccasions
-					event={ event }
-					eventVariant={ variant }
-					hasExtendedSettingsAddOn={ hasExtendedSettingsAddOn }
-					hasPremiumAddOn={ hasPremiumAddOn }
-					eventsSettingsPageURL={ eventsSettingsPageURL }
-				/>
+				<EventActionLinks event={ event } />
+
+				<EventReactions { ...reactionState } />
+
+				<EventOccasions event={ event } eventVariant={ variant } />
 
 				<EventActionsButton
 					event={ event }
 					eventVariant={ variant }
-					eventsAdminPageURL={ eventsAdminPageURL }
-					hasPremiumAddOn={ hasPremiumAddOn }
+					reactionState={ reactionState }
 				/>
 			</div>
 		</li>

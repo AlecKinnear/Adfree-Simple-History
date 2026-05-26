@@ -2,6 +2,10 @@
 
 namespace Simple_History\Loggers;
 
+use Simple_History\Event_Details\Event_Details_Group;
+use Simple_History\Event_Details\Event_Details_Group_Diff_Table_Formatter;
+use Simple_History\Event_Details\Event_Details_Group_Table_Formatter;
+use Simple_History\Event_Details\Event_Details_Item;
 use Simple_History\Helpers;
 
 /**
@@ -21,7 +25,7 @@ class Plugin_WP_Crontrol_Logger extends Logger {
 	 */
 	public function get_info() {
 
-		$arr_info = array(
+		return array(
 			'name'        => _x( 'Plugin: WP Crontrol Logger', 'PluginWPCrontrolLogger', 'simple-history' ),
 			'description' => _x( 'Logs management of cron events', 'PluginWPCrontrolLogger', 'simple-history' ),
 			'name_via'    => _x( 'Using plugin WP Crontrol', 'PluginWPCrontrolLogger', 'simple-history' ),
@@ -37,9 +41,34 @@ class Plugin_WP_Crontrol_Logger extends Logger {
 				'added_new_schedule'    => _x( 'Added cron schedule "{schedule_name}"', 'PluginWPCrontrolLogger', 'simple-history' ),
 				'deleted_schedule'      => _x( 'Deleted cron schedule "{schedule_name}"', 'PluginWPCrontrolLogger', 'simple-history' ),
 			),
+			'labels'      => array(
+				'search' => array(
+					'label'     => _x( 'WP Crontrol', 'PluginWPCrontrolLogger: search', 'simple-history' ),
+					'label_all' => _x( 'All WP Crontrol activity', 'PluginWPCrontrolLogger: search', 'simple-history' ),
+					'options'   => array(
+						_x( 'Cron events added', 'PluginWPCrontrolLogger: search', 'simple-history' ) => array(
+							'added_new_event',
+						),
+						_x( 'Cron events ran manually', 'PluginWPCrontrolLogger: search', 'simple-history' ) => array(
+							'ran_event',
+						),
+						_x( 'Cron events modified', 'PluginWPCrontrolLogger: search', 'simple-history' ) => array(
+							'edited_event',
+							'paused_hook',
+							'resumed_hook',
+						),
+						_x( 'Cron events deleted', 'PluginWPCrontrolLogger: search', 'simple-history' ) => array(
+							'deleted_event',
+							'deleted_all_with_hook',
+						),
+						_x( 'Cron schedules', 'PluginWPCrontrolLogger: search', 'simple-history' ) => array(
+							'added_new_schedule',
+							'deleted_schedule',
+						),
+					),
+				),
+			),
 		);
-
-		return $arr_info;
 	}
 
 	/**
@@ -74,9 +103,9 @@ class Plugin_WP_Crontrol_Logger extends Logger {
 	 */
 	public function added_new_event( $event ) {
 		$context = array(
-			'event_hook' => $event->hook,
+			'event_hook'      => $event->hook,
 			'event_timestamp' => $event->timestamp,
-			'event_args' => $event->args,
+			'event_args'      => $event->args,
 		);
 
 		if ( $event->schedule ) {
@@ -135,9 +164,9 @@ class Plugin_WP_Crontrol_Logger extends Logger {
 	 */
 	public function deleted_event( $event ) {
 		$context = array(
-			'event_hook' => $event->hook,
+			'event_hook'      => $event->hook,
 			'event_timestamp' => $event->timestamp,
-			'event_args' => $event->args,
+			'event_args'      => $event->args,
 		);
 
 		if ( $event->schedule ) {
@@ -164,7 +193,7 @@ class Plugin_WP_Crontrol_Logger extends Logger {
 	 */
 	public function deleted_all_with_hook( $hook, $deleted ) {
 		$context = array(
-			'event_hook' => $hook,
+			'event_hook'     => $hook,
 			'events_deleted' => $deleted,
 		);
 
@@ -230,12 +259,12 @@ class Plugin_WP_Crontrol_Logger extends Logger {
 	 */
 	public function edited_event( $event, $original ) {
 		$context = array(
-			'event_hook' => $event->hook,
-			'event_timestamp' => $event->timestamp,
-			'event_args' => $event->args,
-			'event_original_hook' => $original->hook,
+			'event_hook'               => $event->hook,
+			'event_timestamp'          => $event->timestamp,
+			'event_args'               => $event->args,
+			'event_original_hook'      => $original->hook,
 			'event_original_timestamp' => $original->timestamp,
-			'event_original_args' => $original->args,
+			'event_original_args'      => $original->args,
 		);
 
 		if ( $event->schedule ) {
@@ -273,9 +302,9 @@ class Plugin_WP_Crontrol_Logger extends Logger {
 	 */
 	public function added_new_schedule( $name, $interval, $display ) {
 		$context = array(
-			'schedule_name' => $name,
+			'schedule_name'     => $name,
 			'schedule_interval' => $interval,
-			'schedule_display' => $display,
+			'schedule_display'  => $display,
 		);
 
 		$this->info_message(
@@ -304,7 +333,7 @@ class Plugin_WP_Crontrol_Logger extends Logger {
 	 * Generate HTML output for the details of a log row.
 	 *
 	 * @param object $row Log row object.
-	 * @return string
+	 * @return Event_Details_Group|string
 	 */
 	public function get_log_row_details_output( $row ) {
 		switch ( $row->context_message_key ) {
@@ -326,145 +355,89 @@ class Plugin_WP_Crontrol_Logger extends Logger {
 	 * Generate HTML output for the details of a log row.
 	 *
 	 * @param object $row Log row object.
-	 * @return string
+	 * @return Event_Details_Group
 	 */
 	protected function cronEventDetailsOutput( $row ) {
-		$tmpl_row = '
-            <tr>
-                <td>%1$s</td>
-                <td>%2$s</td>
-            </tr>
-        ';
 		$context = $row->context;
-		$output = '<table class="SimpleHistoryLogitem__keyValueTable">';
 
-		if ( isset( $context['event_original_hook'] ) && ( $context['event_original_hook'] !== $context['event_hook'] ) ) {
-			$key_text_diff = helpers::Text_Diff(
-				$context['event_original_hook'],
-				$context['event_hook']
+		// For edits with original values, use diff formatter.
+		$has_diffs = isset( $context['event_original_hook'] ) || isset( $context['event_original_args'] ) || isset( $context['event_original_timestamp'] ) || isset( $context['event_original_schedule_name'] );
+
+		$group = new Event_Details_Group();
+		$group->set_formatter( $has_diffs ? new Event_Details_Group_Diff_Table_Formatter() : new Event_Details_Group_Table_Formatter() );
+
+		// Hook.
+		if ( isset( $context['event_original_hook'] ) && $context['event_original_hook'] !== $context['event_hook'] ) {
+			$group->add_item(
+				( new Event_Details_Item( null, _x( 'Hook', 'PluginWPCrontrolLogger', 'simple-history' ) ) )
+					->set_values( $context['event_hook'], $context['event_original_hook'] )
 			);
-
-			if ( $key_text_diff ) {
-				$output .= sprintf(
-					$tmpl_row,
-					_x( 'Hook', 'PluginWPCrontrolLogger', 'simple-history' ),
-					$key_text_diff
-				);
-			}
 		}
 
-		if ( isset( $context['event_original_args'] ) && ( $context['event_original_args'] !== $context['event_args'] ) ) {
-			$key_text_diff = helpers::Text_Diff(
-				$context['event_original_args'],
-				$context['event_args']
+		// Arguments.
+		if ( isset( $context['event_original_args'] ) && $context['event_original_args'] !== $context['event_args'] ) {
+			$group->add_item(
+				( new Event_Details_Item( null, _x( 'Arguments', 'PluginWPCrontrolLogger', 'simple-history' ) ) )
+					->set_values( $context['event_args'], $context['event_original_args'] )
 			);
-			if ( $key_text_diff ) {
-				$output .= sprintf(
-					$tmpl_row,
-					_x( 'Arguments', 'PluginWPCrontrolLogger', 'simple-history' ),
-					$key_text_diff
-				);
-			}
 		} elseif ( isset( $context['event_args'] ) ) {
-			if ( '[]' !== $context['event_args'] ) {
-				$args = $context['event_args'];
-			} else {
-				$args = _x( 'None', 'PluginWPCrontrolLogger', 'simple-history' );
-			}
-			$output .= sprintf(
-				$tmpl_row,
-				_x( 'Arguments', 'PluginWPCrontrolLogger', 'simple-history' ),
-				esc_html( $args )
+			$args = $context['event_args'] !== '[]'
+				? $context['event_args']
+				: _x( 'None', 'PluginWPCrontrolLogger', 'simple-history' );
+			$group->add_item(
+				( new Event_Details_Item( null, _x( 'Arguments', 'PluginWPCrontrolLogger', 'simple-history' ) ) )
+					->set_new_value( $args )
 			);
 		}
 
-		if ( isset( $context['event_original_timestamp'] ) && ( $context['event_original_timestamp'] !== $context['event_timestamp'] ) ) {
-			$key_text_diff = helpers::Text_Diff(
-				gmdate( 'Y-m-d H:i:s', $context['event_original_timestamp'] ),
-				gmdate( 'Y-m-d H:i:s', $context['event_timestamp'] )
+		// Next Run (timestamps need to be formatted as dates).
+		if ( isset( $context['event_original_timestamp'] ) && $context['event_original_timestamp'] !== $context['event_timestamp'] ) {
+			$group->add_item(
+				( new Event_Details_Item( null, _x( 'Next Run', 'PluginWPCrontrolLogger', 'simple-history' ) ) )
+					->set_values(
+						gmdate( 'Y-m-d H:i:s', $context['event_timestamp'] ),
+						gmdate( 'Y-m-d H:i:s', $context['event_original_timestamp'] )
+					)
 			);
-			if ( $key_text_diff ) {
-				$output .= sprintf(
-					$tmpl_row,
-					_x( 'Next Run', 'PluginWPCrontrolLogger', 'simple-history' ),
-					$key_text_diff
-				);
-			}
 		} elseif ( isset( $context['event_timestamp'] ) ) {
-			$output .= sprintf(
-				$tmpl_row,
-				_x( 'Next Run', 'PluginWPCrontrolLogger', 'simple-history' ),
-				esc_html( gmdate( 'Y-m-d H:i:s', $context['event_timestamp'] ) . ' UTC' )
+			$group->add_item(
+				( new Event_Details_Item( null, _x( 'Next Run', 'PluginWPCrontrolLogger', 'simple-history' ) ) )
+					->set_new_value( gmdate( 'Y-m-d H:i:s', $context['event_timestamp'] ) . ' UTC' )
 			);
 		}
 
-		if ( isset( $context['event_original_schedule_name'] ) && ( $context['event_original_schedule_name'] !== $context['event_schedule_name'] ) ) {
-			$key_text_diff = helpers::Text_Diff(
-				$context['event_original_schedule_name'],
-				$context['event_schedule_name']
+		// Recurrence.
+		if ( isset( $context['event_original_schedule_name'] ) && $context['event_original_schedule_name'] !== $context['event_schedule_name'] ) {
+			$group->add_item(
+				( new Event_Details_Item( null, _x( 'Recurrence', 'PluginWPCrontrolLogger', 'simple-history' ) ) )
+					->set_values( $context['event_schedule_name'], $context['event_original_schedule_name'] )
 			);
-			if ( $key_text_diff ) {
-				$output .= sprintf(
-					$tmpl_row,
-					_x( 'Recurrence', 'PluginWPCrontrolLogger', 'simple-history' ),
-					$key_text_diff
-				);
-			}
 		} elseif ( isset( $context['event_schedule_name'] ) ) {
-			$output .= sprintf(
-				$tmpl_row,
-				_x( 'Recurrence', 'PluginWPCrontrolLogger', 'simple-history' ),
-				esc_html( $context['event_schedule_name'] )
+			$group->add_item(
+				( new Event_Details_Item( null, _x( 'Recurrence', 'PluginWPCrontrolLogger', 'simple-history' ) ) )
+					->set_new_value( $context['event_schedule_name'] )
 			);
 		}
 
-		$output .= '</table>';
-
-		return $output;
+		return $group;
 	}
 
 	/**
 	 * Generate HTML output for the details of a log row.
 	 *
 	 * @param object $row Log row object.
-	 * @return string
+	 * @return Event_Details_Group
 	 */
 	protected function cronScheduleDetailsOutput( $row ) {
-		$tmpl_row = '
-            <tr>
-                <td>%1$s</td>
-                <td>%2$s</td>
-            </tr>
-        ';
-		$context = $row->context;
-		$output = '<table class="SimpleHistoryLogitem__keyValueTable">';
+		$group = new Event_Details_Group();
+		$group->set_formatter( new Event_Details_Group_Table_Formatter() );
 
-		if ( isset( $context['schedule_name'] ) ) {
-			$output .= sprintf(
-				$tmpl_row,
-				_x( 'Name', 'PluginWPCrontrolLogger', 'simple-history' ),
-				esc_html( $context['schedule_name'] )
-			);
-		}
+		$group->add_items( [
+			new Event_Details_Item( 'schedule_name', _x( 'Name', 'PluginWPCrontrolLogger', 'simple-history' ) ),
+			new Event_Details_Item( 'schedule_interval', _x( 'Interval', 'PluginWPCrontrolLogger', 'simple-history' ) ),
+			new Event_Details_Item( 'schedule_display', _x( 'Display Name', 'PluginWPCrontrolLogger', 'simple-history' ) ),
+		] );
 
-		if ( isset( $context['schedule_interval'] ) ) {
-			$output .= sprintf(
-				$tmpl_row,
-				_x( 'Interval', 'PluginWPCrontrolLogger', 'simple-history' ),
-				esc_html( $context['schedule_interval'] )
-			);
-		}
-
-		if ( isset( $context['schedule_display'] ) ) {
-			$output .= sprintf(
-				$tmpl_row,
-				_x( 'Display Name', 'PluginWPCrontrolLogger', 'simple-history' ),
-				esc_html( $context['schedule_display'] )
-			);
-		}
-
-		$output .= '</table>';
-
-		return $output;
+		return $group;
 	}
 }

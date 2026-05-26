@@ -2,6 +2,9 @@
 
 namespace Simple_History\Loggers;
 
+use Simple_History\Event_Details\Event_Details_Group;
+use Simple_History\Event_Details\Event_Details_Item;
+use Simple_History\Event_Details\Event_Details_Item_Table_Row_RAW_Formatter;
 use Simple_History\Helpers;
 
 /**
@@ -17,7 +20,28 @@ class Theme_Logger extends Logger {
 	 *
 	 * @var array<string,array<mixed>> Array of theme data.
 	 */
-	protected $themes_data = array();
+	protected $themes_data = [];
+
+	/**
+	 * Used to store results from upgrader_install_package_result for theme updates.
+	 * Used to detect rollback scenarios (WordPress 6.3+ feature).
+	 *
+	 * Structure: [
+	 *   'theme-slug' => [
+	 *     'result' => array|WP_Error,
+	 *     'rollback_will_occur' => bool,
+	 *     'rollback_info' => [
+	 *       'backup_slug' => string,
+	 *       'backup_dir' => string,
+	 *       'error_code' => string,
+	 *       'error_message' => string,
+	 *     ]
+	 *   ]
+	 * ]
+	 *
+	 * @var array<string,array<string,mixed>> Array with theme slug as key.
+	 */
+	protected $package_results = [];
 
 	/**
 	 * Return logger info
@@ -25,7 +49,7 @@ class Theme_Logger extends Logger {
 	 * @return array
 	 */
 	public function get_info() {
-		$arr_info = array(
+		return array(
 			'name'        => __( 'Theme Logger', 'simple-history' ),
 			'description' => __( 'Logs theme edits', 'simple-history' ),
 			'capability'  => 'edit_theme_options',
@@ -34,6 +58,7 @@ class Theme_Logger extends Logger {
 				'theme_installed'           => __( 'Installed theme "{theme_name}" by {theme_author}', 'simple-history' ),
 				'theme_deleted'             => __( 'Deleted theme "{theme_name}"', 'simple-history' ),
 				'theme_updated'             => __( 'Updated theme "{theme_name}"', 'simple-history' ),
+				'theme_update_failed'       => __( 'Failed to update theme "{theme_name}"', 'simple-history' ),
 				'appearance_customized'     => __( 'Customized theme appearance "{setting_id}"', 'simple-history' ),
 				'widget_removed'            => __( 'Removed widget "{widget_id_base}" from sidebar "{sidebar_id}"', 'simple-history' ),
 				'widget_added'              => __( 'Added widget "{widget_id_base}" to sidebar "{sidebar_id}"', 'simple-history' ),
@@ -80,8 +105,6 @@ class Theme_Logger extends Logger {
 				),
 			),
 		);
-
-		return $arr_info;
 	}
 
 	/**
@@ -101,10 +124,16 @@ class Theme_Logger extends Logger {
 
 		add_action( 'sidebar_admin_setup', array( $this, 'on_action_sidebar_admin_setup__detect_widget_delete' ) );
 		add_action( 'sidebar_admin_setup', array( $this, 'on_action_sidebar_admin_setup__detect_widget_add' ) );
+
+		// Detect widget add/remove outside wp-admin (WP-CLI, REST API).
+		// Admin path uses sidebar_admin_setup which reads $_POST.
+		// This hook fires after the option is written and provides both old and new values.
+		add_action( 'update_option_sidebars_widgets', array( $this, 'on_update_option_sidebars_widgets_non_admin' ), 10, 3 );
 		add_filter( 'widget_update_callback', array( $this, 'on_widget_update_callback' ), 10, 4 );
 
 		add_action( 'load-appearance_page_custom-background', array( $this, 'on_page_load_custom_background' ) );
 
+		add_filter( 'upgrader_install_package_result', array( $this, 'on_upgrader_install_package_result' ), 10, 2 );
 		add_action( 'upgrader_process_complete', array( $this, 'on_upgrader_process_complete_theme_install' ), 10, 2 );
 		add_action( 'upgrader_process_complete', array( $this, 'on_upgrader_process_complete_theme_update' ), 10, 2 );
 
@@ -136,11 +165,11 @@ class Theme_Logger extends Logger {
 		$theme = wp_get_theme( $stylesheet );
 
 		$this->themes_data[ $stylesheet ] = array(
-			'name' => $theme->get( 'Name' ),
-			'version' => $theme->get( 'Version' ),
-			'author' => $theme->get( 'Author' ),
+			'name'        => $theme->get( 'Name' ),
+			'version'     => $theme->get( 'Version' ),
+			'author'      => $theme->get( 'Author' ),
 			'description' => $theme->get( 'Description' ),
-			'themeuri' => $theme->get( 'ThemeURI' ),
+			'themeuri'    => $theme->get( 'ThemeURI' ),
 		);
 	}
 
@@ -165,13 +194,54 @@ class Theme_Logger extends Logger {
 		$this->info_message(
 			'theme_deleted',
 			array(
-				'theme_slug' => $stylesheet,
-				'theme_name' => $theme_data['name'],
-				'theme_version' => $theme_data['version'],
-				'theme_author' => $theme_data['author'],
+				'theme_slug'        => $stylesheet,
+				'theme_name'        => $theme_data['name'],
+				'theme_version'     => $theme_data['version'],
+				'theme_author'      => $theme_data['author'],
 				'theme_description' => $theme_data['description'],
 			)
 		);
+	}
+
+	/**
+	 * Fired during theme update process.
+	 * Used to detect rollback scenarios (WordPress 6.3+ feature).
+	 *
+	 * @param array|\WP_Error $result     Result from WP_Upgrader::install_package().
+	 * @param array           $hook_extra Extra arguments passed to hooked filters.
+	 * @return array|\WP_Error
+	 */
+	public function on_upgrader_install_package_result( $result, $hook_extra ) {
+		// Only handle theme updates.
+		if ( ! isset( $hook_extra['theme'] ) ) {
+			return $result;
+		}
+
+		$theme_slug = $hook_extra['theme'];
+
+		// Store result for later use in on_upgrader_process_complete_theme_update().
+		$this->package_results[ $theme_slug ] = [
+			'result' => $result,
+		];
+
+		// Detect if rollback will occur (WordPress 6.3+ feature).
+		// Rollback happens when:
+		// 1. This is an update (temp_backup exists in hook_extra).
+		// 2. The update failed (result is WP_Error).
+		$is_update = isset( $hook_extra['temp_backup'] );
+		$has_error = is_wp_error( $result );
+
+		if ( $is_update && $has_error ) {
+			$this->package_results[ $theme_slug ]['rollback_will_occur'] = true;
+			$this->package_results[ $theme_slug ]['rollback_info']       = [
+				'backup_slug'   => $hook_extra['temp_backup']['slug'] ?? '',
+				'backup_dir'    => $hook_extra['temp_backup']['dir'] ?? '',
+				'error_code'    => $result->get_error_code(),
+				'error_message' => $result->get_error_message(),
+			];
+		}
+
+		return $result;
 	}
 
 	/**
@@ -182,8 +252,10 @@ class Theme_Logger extends Logger {
 	 * @return void
 	 */
 	public function on_upgrader_process_complete_theme_update( $upgrader_instance = null, $arr_data = null ) {
+		// phpcs:disable Squiz.PHP.CommentedOutCode.Found -- Documentation showing data structure.
+
 		/*
-		For theme updates $arr_data looks like
+		 * For theme updates $arr_data looks like
 
 		// From core update/bulk
 		Array
@@ -206,6 +278,7 @@ class Theme_Logger extends Logger {
 			[type] => theme
 		)
 		*/
+		// phpcs:enable Squiz.PHP.CommentedOutCode.Found
 
 		// Both args must be set.
 		if ( empty( $upgrader_instance ) || empty( $arr_data ) ) {
@@ -239,20 +312,45 @@ class Theme_Logger extends Logger {
 				continue;
 			}
 
-			$theme_name = $theme_info_object->get( 'Name' );
+			$theme_name    = $theme_info_object->get( 'Name' );
 			$theme_version = $theme_info_object->get( 'Version' );
 
-			if ( ! $theme_name || ! $theme_version ) {
+			if ( ! $theme_name ) {
 				continue;
 			}
 
-			$this->info_message(
-				'theme_updated',
-				array(
+			// Check if update failed (result is WP_Error).
+			$package_result = $this->package_results[ $one_updated_theme ] ?? null;
+			$has_error      = $package_result && is_wp_error( $package_result['result'] );
+
+			if ( $has_error ) {
+				// Theme update failed.
+				$context = [
+					'theme_slug' => $one_updated_theme,
 					'theme_name' => $theme_name,
-					'theme_version' => $theme_version,
-				)
-			);
+				];
+
+				// Add rollback context if rollback will occur.
+				$context = $this->add_rollback_context( $context, $one_updated_theme );
+
+				$this->warning_message(
+					'theme_update_failed',
+					$context
+				);
+			} else {
+				// Theme update succeeded.
+				if ( ! $theme_version ) {
+					continue;
+				}
+
+				$this->info_message(
+					'theme_updated',
+					array(
+						'theme_name'    => $theme_name,
+						'theme_version' => $theme_version,
+					)
+				);
+			}
 		}
 	}
 
@@ -301,10 +399,10 @@ class Theme_Logger extends Logger {
 		$this->info_message(
 			'theme_installed',
 			array(
-				'theme_slug' => $destination_name,
-				'theme_name' => $new_theme_data['Name'],
-				'theme_version' => $new_theme_data['Version'],
-				'theme_author' => $new_theme_data['Author'],
+				'theme_slug'        => $destination_name,
+				'theme_name'        => $new_theme_data['Name'],
+				'theme_version'     => $new_theme_data['Version'],
+				'theme_author'      => $new_theme_data['Author'],
 				'theme_description' => $theme->get( 'Description' ),
 			)
 		);
@@ -320,25 +418,27 @@ class Theme_Logger extends Logger {
 		}
 
 		$arr_valid_post_keys = array(
-			'reset-background' => 1,
-			'remove-background' => 1,
-			'background-repeat' => 1,
+			'reset-background'      => 1,
+			'remove-background'     => 1,
+			'background-repeat'     => 1,
 			'background-position-x' => 1,
 			'background-attachment' => 1,
-			'background-color' => 1,
+			'background-color'      => 1,
 		);
 
 		// phpcs:ignore WordPress.Security.NonceVerification.Missing
 		$valid_post_key_exists = array_intersect_key( $arr_valid_post_keys, $_POST );
 
-		if ( ! empty( $valid_post_key_exists ) ) {
-			$context = array();
-			// $context["POST"] = Helpers::json_encode( $_POST );
-			$this->info_message(
-				'custom_background_changed',
-				$context
-			);
+		if ( empty( $valid_post_key_exists ) ) {
+			return;
 		}
+
+		$context = array();
+
+		$this->info_message(
+			'custom_background_changed',
+			$context
+		);
 	}
 
 	/**
@@ -372,42 +472,49 @@ class Theme_Logger extends Logger {
 		$settings = $customize_manager->settings();
 		$controls = $customize_manager->controls();
 
-		// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotValidated
+		// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotValidated, WordPress.Security.NonceVerification.Recommended
 		$customized = json_decode( sanitize_text_field( wp_unslash( $_REQUEST['customized'] ) ) );
 
 		foreach ( $customized as $setting_id => $posted_values ) {
 			foreach ( $settings as $one_setting ) {
-				if ( $one_setting->id == $setting_id ) {
-					$old_value = $one_setting->value();
-					$new_value = $one_setting->post_value();
+				if ( $one_setting->id !== $setting_id ) {
+					continue;
+				}
 
-					if ( $old_value != $new_value ) {
-						$context = array(
-							'setting_id' => $one_setting->id,
-							'setting_old_value' => $old_value,
-							'setting_new_value' => $new_value,
-						);
+				$old_value = $one_setting->value();
+				$new_value = $one_setting->post_value();
 
-						// value is changed
-						// find which control it belongs to.
-						foreach ( $controls as $one_control ) {
-							foreach ( $one_control->settings as $section_control_setting ) {
-								if ( $section_control_setting->id == $setting_id ) {
-									$context['control_id'] = $one_control->id;
-									$context['control_label'] = $one_control->label;
-									$context['control_type'] = $one_control->type;
-								}
-							}
+				// phpcs:ignore Universal.Operators.StrictComparisons.LooseEqual -- Loose comparison intentional to avoid false diffs when types differ.
+				if ( $old_value == $new_value ) {
+					continue;
+				}
+
+				$context = array(
+					'setting_id'        => $one_setting->id,
+					'setting_old_value' => $old_value,
+					'setting_new_value' => $new_value,
+				);
+
+				// value is changed
+				// find which control it belongs to.
+				foreach ( $controls as $one_control ) {
+					foreach ( $one_control->settings as $section_control_setting ) {
+						if ( $section_control_setting->id !== $setting_id ) {
+							continue;
 						}
 
-						$this->info_message(
-							'appearance_customized',
-							$context
-						);
-					}// End if().
-				}// End if().
-			}// End foreach().
-		}// End foreach().
+						$context['control_id']    = $one_control->id;
+						$context['control_label'] = $one_control->label;
+						$context['control_type']  = $one_control->type;
+					}
+				}
+
+				$this->info_message(
+					'appearance_customized',
+					$context
+				);
+			}
+		}
 	}
 
 	/**
@@ -421,9 +528,9 @@ class Theme_Logger extends Logger {
 		$this->info_message(
 			'theme_switched',
 			array(
-				'theme_name' => $new_name,
-				'theme_version' => $new_theme->version,
-				'prev_theme_name' => $old_theme->name ?? null,
+				'theme_name'         => $new_name,
+				'theme_version'      => $new_theme->version,
+				'prev_theme_name'    => $old_theme->name ?? null,
 				'prev_theme_version' => $old_theme->version ?? null,
 			)
 		);
@@ -433,84 +540,70 @@ class Theme_Logger extends Logger {
 	 * Get detailed output for a row.
 	 *
 	 * @param object $row Log row.
-	 * @return string
+	 * @return Event_Details_Group|string
 	 */
 	public function get_log_row_details_output( $row ) {
-		$context = $row->context;
+		$context     = $row->context;
 		$message_key = $context['_message_key'];
-		$output = '';
 
-		// Theme customizer.
-		if ( 'appearance_customized' == $message_key ) {
-			if ( isset( $context['setting_old_value'] ) && isset( $context['setting_new_value'] ) ) {
-				$output .= "<table class='SimpleHistoryLogitem__keyValueTable'>";
+		if ( $message_key !== 'appearance_customized' ) {
+			return '';
+		}
 
-				// Output section, if saved.
-				if ( ! empty( $context['section_id'] ) ) {
-					$output .= sprintf(
-						'
-						<tr>
-							<td>%1$s</td>
-							<td>%2$s</td>
-						</tr>
-						',
-						__( 'Section', 'simple-history' ),
-						esc_html( $context['section_id'] )
-					);
-				}
+		if ( ! isset( $context['setting_old_value'] ) || ! isset( $context['setting_new_value'] ) ) {
+			return '';
+		}
 
-				// Don't output prev and new value if none exist.
-				// phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedIf
-				if ( empty( $context['setting_old_value'] ) && empty( $context['setting_new_value'] ) ) {
-					// Empty, so skip.
-				} else {
-					// if control is color let's be fancy and output as color.
-					$control_type = $context['control_type'] ?? '';
-					$str_old_value_prepend = '';
-					$str_new_value_prepend = '';
+		if ( empty( $context['setting_old_value'] ) && empty( $context['setting_new_value'] ) ) {
+			return '';
+		}
 
-					if ( 'color' == $control_type ) {
-						$str_old_value_prepend .= sprintf(
-							'<span style="background-color: #%1$s; width: 1em; display: inline-block;">&nbsp;</span> ',
-							esc_attr( ltrim( $context['setting_old_value'], ' #' ) )
-						);
+		$group = new Event_Details_Group();
 
-						$str_new_value_prepend .= sprintf(
-							'<span style="background-color: #%1$s; width: 1em; display: inline-block;">&nbsp;</span> ',
-							esc_attr( ltrim( $context['setting_new_value'], '#' ) )
-						);
-					}
+		// Section row.
+		if ( ! empty( $context['section_id'] ) ) {
+			$group->add_item(
+				( new Event_Details_Item( 'section_id', __( 'Section', 'simple-history' ) ) )
+			);
+		}
 
-					$output .= sprintf(
-						'
-						<tr>
-							<td>%1$s</td>
-							<td>%3$s%2$s</td>
-						</tr>
-						',
-						__( 'New value', 'simple-history' ),
-						esc_html( $context['setting_new_value'] ),
-						$str_new_value_prepend
-					);
+		// Color controls need RAW formatter for the color swatches.
+		$control_type = $context['control_type'] ?? '';
 
-					$output .= sprintf(
-						'
-						<tr>
-							<td>%1$s</td>
-							<td>%3$s%2$s</td>
-						</tr>
-						',
-						__( 'Old value', 'simple-history' ),
-						esc_html( $context['setting_old_value'] ),
-						$str_old_value_prepend
-					);
-				}// End if().
+		if ( $control_type === 'color' ) {
+			$new_swatch = sprintf(
+				'<span style="background-color: #%1$s; width: 1em; display: inline-block;">&nbsp;</span> %2$s',
+				esc_attr( ltrim( $context['setting_new_value'], '#' ) ),
+				esc_html( $context['setting_new_value'] )
+			);
+			$old_swatch = sprintf(
+				'<span style="background-color: #%1$s; width: 1em; display: inline-block;">&nbsp;</span> %2$s',
+				esc_attr( ltrim( $context['setting_old_value'], ' #' ) ),
+				esc_html( $context['setting_old_value'] )
+			);
 
-				$output .= '</table>';
-			}// End if().
-		}// End if().
+			$group->add_item(
+				( new Event_Details_Item( null, __( 'New value', 'simple-history' ) ) )
+					->set_formatter(
+						( new Event_Details_Item_Table_Row_RAW_Formatter() )
+							->set_html_output( $new_swatch )
+					)
+			);
+			$group->add_item(
+				( new Event_Details_Item( null, __( 'Old value', 'simple-history' ) ) )
+					->set_formatter(
+						( new Event_Details_Item_Table_Row_RAW_Formatter() )
+							->set_html_output( $old_swatch )
+					)
+			);
+		} else {
+			$group->add_item(
+				( new Event_Details_Item( null, __( 'Value', 'simple-history' ) ) )
+					->set_values( $context['setting_new_value'], $context['setting_old_value'] )
+			);
+		}
 
-		return $output;
+		return $group;
 	}
 
 	/**
@@ -519,31 +612,33 @@ class Theme_Logger extends Logger {
 	 * @param object $row Log row.
 	 */
 	public function get_log_row_plain_text_output( $row ) {
-		$context = $row->context;
+		$context     = $row->context;
 		$message_key = $context['_message_key'];
-		$message = $row->message;
-		$output = '';
+		$message     = $row->message;
+		$output      = '';
 
 		// Widget changed or added or removed
 		// Simple replace widget_id_base and sidebar_id with widget name and sidebar name.
-		if ( in_array( $message_key, array( 'widget_added', 'widget_edited', 'widget_removed' ) ) ) {
-			$widget = $this->get_widget_by_id_base( $context['widget_id_base'] );
+		if ( in_array( $message_key, array( 'widget_added', 'widget_edited', 'widget_removed' ), true ) ) {
+			$widget  = $this->get_widget_by_id_base( $context['widget_id_base'] );
 			$sidebar = $this->get_sidebar_by_id( $context['sidebar_id'] );
 
 			if ( $widget && $sidebar ) {
 				// Translate message first.
-				$message = $this->messages[ $message_key ]['translated_text'];
+				$translated_message = $this->get_translated_message( $message_key );
 
-				$message = helpers::interpolate(
-					$message,
-					array(
-						'widget_id_base' => $widget->name,
-						'sidebar_id' => $sidebar['name'],
-					),
-					$row
-				);
+				if ( $translated_message !== null ) {
+					$message = helpers::interpolate(
+						$translated_message,
+						array(
+							'widget_id_base' => $widget->name,
+							'sidebar_id'     => $sidebar['name'],
+						),
+						$row
+					);
 
-				$output .= $message;
+					$output .= $message;
+				}
 			}
 		}
 
@@ -577,14 +672,14 @@ class Theme_Logger extends Logger {
 
 		// Add widget info.
 		$context['widget_id_base'] = $widget_id_base;
-		$widget = $this->get_widget_by_id_base( $widget_id_base );
+		$widget                    = $this->get_widget_by_id_base( $widget_id_base );
 		if ( $widget ) {
 			$context['widget_name_translated'] = $widget->name;
 		}
 
 		// Add sidebar info.
 		// phpcs:ignore WordPress.Security.NonceVerification.Missing
-		$sidebar_id = sanitize_text_field( wp_unslash( $_POST['sidebar'] ?? '' ) );
+		$sidebar_id            = sanitize_text_field( wp_unslash( $_POST['sidebar'] ?? '' ) );
 		$context['sidebar_id'] = $sidebar_id;
 
 		$sidebar = $this->get_sidebar_by_id( $sidebar_id );
@@ -613,31 +708,33 @@ class Theme_Logger extends Logger {
 		$context = array();
 
 		// phpcs:ignore WordPress.Security.NonceVerification.Missing
-		if ( isset( $_POST['add_new'] ) && ! empty( $_POST['add_new'] ) && isset( $_POST['sidebar'] ) && isset( $_POST['id_base'] ) ) {
-			// Add widget info.
-			// phpcs:ignore WordPress.Security.NonceVerification.Missing
-			$widget_id_base = sanitize_text_field( wp_unslash( $_POST['id_base'] ) );
-			$context['widget_id_base'] = $widget_id_base;
-			$widget = $this->get_widget_by_id_base( $widget_id_base );
-			if ( $widget ) {
-				$context['widget_name_translated'] = $widget->name;
-			}
-
-			// Add sidebar info.
-			// phpcs:ignore WordPress.Security.NonceVerification.Missing
-			$sidebar_id = sanitize_text_field( wp_unslash( $_POST['sidebar'] ) );
-			$context['sidebar_id'] = $sidebar_id;
-			$sidebar = $this->get_sidebar_by_id( $sidebar_id );
-
-			if ( is_array( $sidebar ) ) {
-				$context['sidebar_name_translated'] = $sidebar['name'];
-			}
-
-			$this->info_message(
-				'widget_added',
-				$context
-			);
+		if ( ! isset( $_POST['add_new'] ) || empty( $_POST['add_new'] ) || ! isset( $_POST['sidebar'] ) || ! isset( $_POST['id_base'] ) ) {
+			return;
 		}
+
+		// Add widget info.
+		// phpcs:ignore WordPress.Security.NonceVerification.Missing
+		$widget_id_base            = sanitize_text_field( wp_unslash( $_POST['id_base'] ) );
+		$context['widget_id_base'] = $widget_id_base;
+		$widget                    = $this->get_widget_by_id_base( $widget_id_base );
+		if ( $widget ) {
+			$context['widget_name_translated'] = $widget->name;
+		}
+
+		// Add sidebar info.
+		// phpcs:ignore WordPress.Security.NonceVerification.Missing
+		$sidebar_id            = sanitize_text_field( wp_unslash( $_POST['sidebar'] ) );
+		$context['sidebar_id'] = $sidebar_id;
+		$sidebar               = $this->get_sidebar_by_id( $sidebar_id );
+
+		if ( is_array( $sidebar ) ) {
+			$context['sidebar_name_translated'] = $sidebar['name'];
+		}
+
+		$this->info_message(
+			'widget_added',
+			$context
+		);
 	}
 
 	/**
@@ -648,33 +745,35 @@ class Theme_Logger extends Logger {
 	public function on_action_sidebar_admin_setup__detect_widget_delete() {
 		// Widget was deleted.
 		// phpcs:ignore WordPress.Security.NonceVerification.Missing
-		if ( isset( $_POST['delete_widget'] ) ) {
-			$context = array();
-
-			// Add widget info.
-			// phpcs:ignore WordPress.Security.NonceVerification.Missing, WordPress.Security.ValidatedSanitizedInput.InputNotValidated
-			$widget_id_base = sanitize_text_field( wp_unslash( $_POST['id_base'] ) );
-			$context['widget_id_base'] = $widget_id_base;
-			$widget = $this->get_widget_by_id_base( $widget_id_base );
-			if ( $widget ) {
-				$context['widget_name_translated'] = $widget->name;
-			}
-
-			// Add sidebar info.
-			// phpcs:ignore WordPress.Security.NonceVerification.Missing, WordPress.Security.ValidatedSanitizedInput.InputNotValidated
-			$sidebar_id = sanitize_text_field( wp_unslash( $_POST['sidebar'] ) );
-			$context['sidebar_id'] = $sidebar_id;
-
-			$sidebar = $this->get_sidebar_by_id( $sidebar_id );
-			if ( is_array( $sidebar ) ) {
-				$context['sidebar_name_translated'] = $sidebar['name'];
-			}
-
-			$this->info_message(
-				'widget_removed',
-				$context
-			);
+		if ( ! isset( $_POST['delete_widget'] ) ) {
+			return;
 		}
+
+		$context = array();
+
+		// Add widget info.
+		// phpcs:ignore WordPress.Security.NonceVerification.Missing, WordPress.Security.ValidatedSanitizedInput.InputNotValidated
+		$widget_id_base            = sanitize_text_field( wp_unslash( $_POST['id_base'] ) );
+		$context['widget_id_base'] = $widget_id_base;
+		$widget                    = $this->get_widget_by_id_base( $widget_id_base );
+		if ( $widget ) {
+			$context['widget_name_translated'] = $widget->name;
+		}
+
+		// Add sidebar info.
+		// phpcs:ignore WordPress.Security.NonceVerification.Missing, WordPress.Security.ValidatedSanitizedInput.InputNotValidated
+		$sidebar_id            = sanitize_text_field( wp_unslash( $_POST['sidebar'] ) );
+		$context['sidebar_id'] = $sidebar_id;
+
+		$sidebar = $this->get_sidebar_by_id( $sidebar_id );
+		if ( is_array( $sidebar ) ) {
+			$context['sidebar_name_translated'] = $sidebar['name'];
+		}
+
+		$this->info_message(
+			'widget_removed',
+			$context
+		);
 	}
 
 	/**
@@ -713,11 +812,108 @@ class Theme_Logger extends Logger {
 		}
 
 		foreach ( $widget_factory->widgets as $one_widget ) {
-			if ( $one_widget->id_base == $widget_id_base ) {
+			if ( $one_widget->id_base === $widget_id_base ) {
 				return $one_widget;
 			}
 		}
 
 		return false;
+	}
+
+	/**
+	 * Detect widget additions and removals made outside wp-admin (WP-CLI, REST).
+	 *
+	 * The admin path uses sidebar_admin_setup hooks that read $_POST directly.
+	 * This hook fires after the option is written with both old and new values,
+	 * so we can diff them to log the same events for non-admin contexts.
+	 *
+	 * @param mixed  $old_value Previous sidebars_widgets value.
+	 * @param mixed  $new_value New sidebars_widgets value.
+	 * @param string $option    Option name (always 'sidebars_widgets').
+	 * @return void
+	 */
+	public function on_update_option_sidebars_widgets_non_admin( $old_value, $new_value, $option ) {
+		// Admin uses sidebar_admin_setup + $_POST for widget changes; skip to avoid double-logging.
+		if ( is_admin() ) {
+			return;
+		}
+
+		if ( $old_value === $new_value ) {
+			return;
+		}
+
+		$old_value = (array) $old_value;
+		$new_value = (array) $new_value;
+
+		$all_sidebar_ids = array_unique( array_merge( array_keys( $old_value ), array_keys( $new_value ) ) );
+
+		foreach ( $all_sidebar_ids as $sidebar_id ) {
+			// Skip WordPress internal array_version key.
+			if ( $sidebar_id === 'array_version' ) {
+				continue;
+			}
+
+			$old_widgets = (array) ( $old_value[ $sidebar_id ] ?? array() );
+			$new_widgets = (array) ( $new_value[ $sidebar_id ] ?? array() );
+
+			// Reorders within the same sidebar (same widget IDs, different positions)
+			// produce empty diffs and are intentionally not logged.
+			$changes = array(
+				'widget_added'   => array_diff( $new_widgets, $old_widgets ),
+				'widget_removed' => array_diff( $old_widgets, $new_widgets ),
+			);
+
+			foreach ( $changes as $message_key => $widget_ids ) {
+				foreach ( $widget_ids as $widget_id ) {
+					$this->log_widget_change( $message_key, $widget_id, $sidebar_id );
+				}
+			}
+		}
+	}
+
+	/**
+	 * Log a single widget add/remove event.
+	 *
+	 * @param string $message_key 'widget_added' or 'widget_removed'.
+	 * @param string $widget_id   Full widget id (e.g. "text-99").
+	 * @param string $sidebar_id  Sidebar id.
+	 */
+	private function log_widget_change( $message_key, $widget_id, $sidebar_id ) {
+		$widget_id_base = _get_widget_id_base( $widget_id );
+
+		$context = array(
+			'widget_id_base' => $widget_id_base,
+			'sidebar_id'     => $sidebar_id,
+		);
+
+		$widget = $this->get_widget_by_id_base( $widget_id_base );
+
+		if ( $widget ) {
+			$context['widget_name_translated'] = $widget->name;
+		}
+
+		$this->info_message( $message_key, $context );
+	}
+
+	/**
+	 * Add rollback context to event if rollback will occur.
+	 *
+	 * @param array  $context Context array.
+	 * @param string $theme_slug Theme slug.
+	 * @return array Modified context array.
+	 */
+	private function add_rollback_context( $context, $theme_slug ) {
+		// Check if rollback will occur (WordPress 6.3+ feature).
+		$package_result = $this->package_results[ $theme_slug ] ?? null;
+		if ( $package_result && ! empty( $package_result['rollback_will_occur'] ) ) {
+			$context['rollback_will_occur'] = true;
+			if ( ! empty( $package_result['rollback_info'] ) ) {
+				$context['rollback_backup_slug']   = $package_result['rollback_info']['backup_slug'];
+				$context['rollback_error_code']    = $package_result['rollback_info']['error_code'];
+				$context['rollback_error_message'] = $package_result['rollback_info']['error_message'];
+			}
+		}
+
+		return $context;
 	}
 }

@@ -6,7 +6,18 @@ class SimpleMenuLoggerCest
 {
     public function _before(Admin $I) {
         $I->loginAsAdmin();
+        // Activate a classic theme that supports nav menus.
+        // Default WP 6.8 theme (Twenty Twenty-Five) is a block theme.
+        $I->amOnAdminPage('/themes.php?theme=twentysixteen');
+        // Only activate if not already the active theme.
+        $hasActivateButton = $I->executeJS(
+            "return !!document.querySelector('.theme-wrap .button.activate')"
+        );
+        if ($hasActivateButton) {
+            $I->click('.theme-wrap .button.activate');
+        }
     }
+
 
     public function editMenus(Admin $I) {
         // Create menu
@@ -14,7 +25,9 @@ class SimpleMenuLoggerCest
         $I->fillField('#menu-name', 'My new menu');
         $I->checkOption('#auto-add-pages');
         $I->checkOption('#locations-primary');
-        $I->click('#save_menu_footer');
+        $I->scrollTo('#save_menu_footer');
+        $I->executeJS('document.getElementById("save_menu_footer").click()');
+        $I->waitForElementVisible('#nav-menu-header');
         $I->seeLogMessage('Created menu "My new menu"');
         $I->seeLogContext([
             'menu_name' => 'My new menu'
@@ -32,7 +45,6 @@ class SimpleMenuLoggerCest
 
         $I->fillField("#custom-menu-item-url", 'https://texttv.nu/');
         $I->fillField("#custom-menu-item-name", 'SVT Text TV');
-        $I->wait(1);
         // Click Add to Menu
         $I->click('#submit-customlinkdiv');
         
@@ -40,7 +52,9 @@ class SimpleMenuLoggerCest
         $I->fillField('#menu-name', 'My new menu changed');
         
         // Save the menu.
-        $I->click('Save Menu', '#nav-menu-footer');
+        $I->scrollTo('#save_menu_footer');
+        $I->executeJS('document.getElementById("save_menu_footer").click()');
+        $I->waitForElementVisible('#nav-menu-header');
 
         $I->seeLogMessage('Edited menu "My new menu changed"');
         $I->seeLogContext([
@@ -56,8 +70,11 @@ class SimpleMenuLoggerCest
         $I->waitForElementVisible('#menu-to-edit .item-delete');
         $I->scrollTo('#menu-to-edit .item-delete');
         $I->click('Remove', '#menu-to-edit');
-        $I->wait('1');
-        $I->click('Save Menu', '#nav-menu-footer');
+        // Wait for the animated removal to complete before saving.
+        $I->wait(1);
+        $I->scrollTo('#save_menu_footer');
+        $I->executeJS('document.getElementById("save_menu_footer").click()');
+        $I->waitForElementVisible('#nav-menu-header');
 
         $I->seeLogMessage('Edited menu "My new menu changed"');
         $I->seeLogContext([
@@ -71,7 +88,8 @@ class SimpleMenuLoggerCest
         $I->amOnAdminPage('nav-menus.php');
         $I->click('Delete Menu');
         $I->acceptPopup();
-        $I->wait(1);
+        // Menu deletion redirects via JS — wait for the page to load.
+        $I->waitForElement('#menu-name');
         $I->seeLogMessage('Deleted menu "My new menu changed"');
         $I->seeLogContext([
             'menu_term_id' => '2',

@@ -29,7 +29,35 @@ class Event_Details_Item_RAW_Formatter extends Event_Details_Item_Formatter {
 	 * @return array<mixed>
 	 */
 	public function to_json() {
-		return $this->json_output;
+		$output = $this->json_output;
+
+		// Include item name if it exists and isn't already in custom output,
+		// but only if the custom output seems to be structured data that could benefit from a name field.
+		// If it's a simple array with basic keys, don't add the name to avoid breaking existing usage.
+		if ( $this->item && $this->item->name && ! isset( $output['name'] ) ) {
+			// Only add name if the output has some structured content (contains 'type' or 'content' keys)
+			// This ensures we don't interfere with purely custom JSON outputs.
+			if ( isset( $output['type'] ) || isset( $output['content'] ) ) {
+				$output['name'] = $this->item->name;
+			}
+		}
+
+		// Fallback: when no json_output was provided but the item has html_output and a name,
+		// expose name + plain-text value so JSON/Markdown copies of the event aren't blank
+		// for items rendered via set_html_output() only (e.g. plugin description, author, URL).
+		if ( empty( $output ) && $this->item && ! empty( $this->html_output ) ) {
+			$plain_value = trim( wp_strip_all_tags( $this->html_output ) );
+
+			if ( $plain_value !== '' ) {
+				if ( ! empty( $this->item->name ) ) {
+					$output['name'] = $this->item->name;
+				}
+
+				$output['new_value'] = $plain_value;
+			}
+		}
+
+		return $output;
 	}
 
 	/**

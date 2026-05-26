@@ -41,7 +41,7 @@ class Menu_Manager {
 	/**
 	 * Get all registered pages.
 	 *
-	 * @return array<string,Menu_Page>
+	 * @return array<int,Menu_Page>
 	 */
 	public function get_pages() {
 		$pages = $this->pages;
@@ -57,11 +57,28 @@ class Menu_Manager {
 	}
 
 	/**
+	 * Get pages sorted by their order.
+	 */
+	public function get_pages_ordered() {
+		$pages = $this->get_pages();
+
+		// Sort pages by order.
+		usort(
+			$pages,
+			function ( $a, $b ) {
+				return $a->get_order() - $b->get_order();
+			}
+		);
+
+		return $pages;
+	}
+
+	/**
 	 * Register all menu pages with WordPress.
 	 * Called during admin_menu.
 	 */
 	public function register_pages() {
-		foreach ( $this->get_pages() as $page ) {
+		foreach ( $this->get_pages_ordered() as $page ) {
 			$location = $page->get_location();
 
 			switch ( $location ) {
@@ -87,7 +104,7 @@ class Menu_Manager {
 				default:
 					// Handle sub-pages that have parent set but no explicit location.
 					if ( $page->get_parent() ) {
-						$parent_location = $page->get_parent()->get_location();
+						$parent_location                     = $page->get_parent()->get_location();
 						$parents_where_children_becomes_tabs = [ 'tools', 'dashboard', 'options' ];
 
 						// If parent of a page is "tools", "dashboard", or "options"
@@ -116,7 +133,7 @@ class Menu_Manager {
 		$hook_suffix = add_menu_page(
 			$page->get_page_title(),
 			$page->get_menu_title(),
-			$page->get_capability(),
+			$page->get_capability(), // phpcs:ignore WordPress.WP.Capabilities.Undetermined -- Filterable.
 			$page->get_menu_slug(),
 			[ $page, 'render' ],
 			$page->get_icon(),
@@ -135,7 +152,7 @@ class Menu_Manager {
 		$hook_suffix = add_dashboard_page(
 			$page->get_page_title(),
 			$page->get_menu_title(),
-			$page->get_capability(),
+			$page->get_capability(), // phpcs:ignore WordPress.WP.Capabilities.Undetermined -- Filterable.
 			$page->get_menu_slug(),
 			[ $page, 'render' ]
 		);
@@ -152,7 +169,7 @@ class Menu_Manager {
 		$hook_suffix = add_options_page(
 			$page->get_page_title(),
 			$page->get_menu_title(),
-			$page->get_capability(),
+			$page->get_capability(), // phpcs:ignore WordPress.WP.Capabilities.Undetermined -- Filterable.
 			$page->get_menu_slug(),
 			[ $page, 'render' ]
 		);
@@ -169,7 +186,7 @@ class Menu_Manager {
 		$hook_suffix = add_management_page(
 			$page->get_page_title(),
 			$page->get_menu_title(),
-			$page->get_capability(),
+			$page->get_capability(), // phpcs:ignore WordPress.WP.Capabilities.Undetermined -- Filterable.
 			$page->get_menu_slug(),
 			[ $page, 'render' ]
 		);
@@ -201,7 +218,7 @@ class Menu_Manager {
 			$parent->get_menu_slug(),
 			$page->get_page_title(),
 			$page->get_menu_title(),
-			$page->get_capability(),
+			$page->get_capability(), // phpcs:ignore WordPress.WP.Capabilities.Undetermined -- Filterable.
 			$menu_slug,
 			[ $page, 'render' ],
 		);
@@ -219,9 +236,11 @@ class Menu_Manager {
 		$children = [];
 
 		foreach ( $this->pages as $page ) {
-			if ( $page->get_parent() === $parent_page ) {
-				$children[] = $page;
+			if ( $page->get_parent() !== $parent_page ) {
+				continue;
 			}
+
+			$children[] = $page;
 		}
 
 		// Sort children by order.
@@ -256,6 +275,7 @@ class Menu_Manager {
 	 * @return string The current tab. Empty string if not set.
 	 */
 	public static function get_current_tab_slug() {
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
 		return sanitize_text_field( wp_unslash( $_GET['selected-tab'] ?? '' ) );
 	}
 
@@ -265,18 +285,27 @@ class Menu_Manager {
 	 * @return string The current sub-tab. Empty string if not set.
 	 */
 	public static function get_current_sub_tab_slug() {
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
 		return sanitize_text_field( wp_unslash( $_GET['selected-sub-tab'] ?? '' ) );
 	}
 
 	/**
 	 * Get menu pages that are subpages to a tools, dashboard or options page.
 	 * I.e. the pages that are to be shown as main tabs.
+	 *
+	 * @return array<Menu_Page> Array of main tabs for page with tabs.
 	 */
 	public function get_main_tabs_for_page_with_tabs() {
 		$menu_page_location = Helpers::get_menu_page_location();
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
 		$page = isset( $_GET['page'] ) ? sanitize_text_field( wp_unslash( $_GET['page'] ) ) : null;
 
 		$current_menu_page_root = $this->get_page_by_slug( $page );
+
+		// Bail if no menu page found.
+		if ( ! $current_menu_page_root ) {
+			return [];
+		}
 
 		// Skip if menu page object has it's location at top level, i.e. menu_bottom or menu_top.
 		if ( in_array( $current_menu_page_root->get_location(), [ 'menu_top', 'menu_bottom' ], true ) ) {
@@ -284,7 +313,7 @@ class Menu_Manager {
 		}
 
 		// If "top" or "bottom" then use "Event Log" sub menu item or we will get too many tabs.
-		if ( in_array( $menu_page_location, [ 'top', 'bottom' ] ) ) {
+		if ( in_array( $menu_page_location, [ 'top', 'bottom' ], true ) ) {
 			if ( $page === Simple_History::MENU_PAGE_SLUG ) {
 				$page = Simple_History::VIEW_EVENTS_PAGE_SLUG;
 			}
@@ -293,71 +322,12 @@ class Menu_Manager {
 		// Should this now just be the children of any page? Just as long as it has children.
 		$current_menu_page_root = $this->get_page_by_slug( $page );
 
-		$current_menu_page_root_children = $current_menu_page_root->get_children();
-		return $current_menu_page_root_children;
-
-		// Get the page for this menu.
-		$current_screen = get_current_screen();
-
-		// $current_screen->parent_base = 'tools' for pages inside tools.
-		// $current_screen->parent_base => 'options-general' for pages inside settings.
-		// [base] => tools_page_simple-history-tools-one sometimes too??
-
-		$screen_parent_bases_with_submenus = [ 'tools', 'options-general' ];
-		$screen_parent_base = $current_screen->parent_base;
-
-		// If $screen_parent_base does not contain $screen_parent_bases_with_submenus check for
-		// base that begins with tools_page_ or settings_page_.
-		if ( ! in_array( $screen_parent_base, $screen_parent_bases_with_submenus, true ) ) {
-			$screen_base = $current_screen->base;
-			if ( str_starts_with( $screen_base, 'tools_page_' ) ) {
-				$screen_parent_base = 'tools';
-			} elseif ( str_starts_with( $screen_base, 'settings_page_' ) ) {
-				$screen_parent_base = 'options-general';
-			}
-		}
-
-		$screen_base = $current_screen->base;
-		$can_contain_submenus = in_array( $screen_parent_base, $screen_parent_bases_with_submenus, true );
-
-		if ( ! $can_contain_submenus ) {
+		// Bail if no menu page found after potential page slug change.
+		if ( ! $current_menu_page_root ) {
 			return [];
 		}
 
-		// Find menu_pages that are children of this page.
-		// For settings pages, find pages with slug settings_page_<menu_page_slug>.
-		// For tools pages, find pages with slug tools_page_<menu_page_slug>.
-		$submenu_pages = [];
-
-		$submenu_pages = array_filter(
-			$this->get_pages(),
-			function ( $menu_page ) use ( $screen_base, $screen_parent_base ) {
-				$base_prefix = '';
-				if ( $screen_parent_base === 'tools' ) {
-					$base_prefix = 'tools_page_';
-				} elseif ( $screen_parent_base === 'options-general' ) {
-					$base_prefix = 'settings_page_';
-				}
-
-				$page_is_submenu_of_current_base = false;
-				$parent_page = $menu_page->get_parent();
-
-				if ( ! $parent_page ) {
-					return false;
-				}
-
-				// Check for tools_page_<menu_page_slug> or settings_page_<menu_page_slug>.
-				if ( $screen_base === $base_prefix . $parent_page->get_menu_slug() ) {
-					$page_is_submenu_of_current_base = true;
-				}
-
-				if ( $page_is_submenu_of_current_base ) {
-					return true;
-				}
-			}
-		);
-
-		return $submenu_pages;
+		return $current_menu_page_root->get_children();
 	}
 
 	/**
@@ -444,13 +414,20 @@ class Menu_Manager {
 				<?php
 				foreach ( $child_pages as $child_page ) {
 					$is_current_sub_tab = $child_page->is_current_sub_tab();
-					$is_active_class = $is_current_sub_tab ? 'is-active' : '';
-					$class_page_prio = $child_page->get_order() ? 'sh-SettingsTabs-tab--prio-' . $child_page->get_order() : '';
+					$is_active_class    = $is_current_sub_tab ? 'is-active' : '';
+					$class_page_prio    = $child_page->get_order() ? 'sh-SettingsTabs-tab--prio-' . $child_page->get_order() : '';
 					?>
 					<li class="sh-SettingsTabs-tab <?php echo esc_attr( $class_page_prio ); ?>">
 						<a href="<?php echo esc_url( $child_page->get_url() ); ?>" class="sh-SettingsTabs-link <?php echo esc_attr( $is_active_class ); ?>">
 						<?php
-						echo esc_html( $child_page->get_menu_title() );
+						echo wp_kses(
+							$child_page->get_menu_title(),
+							[
+								'span' => [
+									'class' => [],
+								],
+							]
+						);
 						?>
 						</a>
 					</li>
@@ -472,6 +449,7 @@ class Menu_Manager {
 		// Check if current request is for a request to any of our pages.
 		// If so, redirect to the first child page.
 		$all_menu_pages_slugs = $this->get_all_slugs();
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
 		$page = isset( $_GET['page'] ) ? sanitize_text_field( wp_unslash( $_GET['page'] ) ) : null;
 
 		// Bail if page is not among our pages.
@@ -506,7 +484,7 @@ class Menu_Manager {
 			return;
 		}
 
-		$selected_tab = $this::get_current_tab_slug();
+		$selected_tab     = $this::get_current_tab_slug();
 		$selected_sub_tab = $this::get_current_sub_tab_slug();
 
 		// Only act on main page, so no sub-tab or tab must be selected.
@@ -514,7 +492,8 @@ class Menu_Manager {
 			return;
 		}
 
-		$page = sanitize_text_field( wp_unslash( $_GET['page'] ?? null ) );
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		$page              = sanitize_text_field( wp_unslash( $_GET['page'] ?? null ) );
 		$current_menu_page = $this->get_page_by_slug( $page );
 
 		// Bail if page is not a Menu_Page instance.
@@ -536,7 +515,7 @@ class Menu_Manager {
 			return;
 		}
 
-		$first_main_tab = reset( $main_tabs );
+		$first_main_tab     = reset( $main_tabs );
 		$first_main_tab_url = $first_main_tab->get_url();
 
 		// Redirect to first main tab.
@@ -561,7 +540,7 @@ class Menu_Manager {
 		}
 
 		// If we get here we are go for a redirect.
-		$first_child_page = $selected_tab_menu_page->get_children()[0] ?? null;
+		$first_child_page     = $selected_tab_menu_page->get_children()[0] ?? null;
 		$first_child_page_url = $first_child_page ? $first_child_page->get_url() : '';
 
 		if ( ! $first_child_page_url ) {
@@ -595,7 +574,7 @@ class Menu_Manager {
 	 */
 	public static function get_admin_url_by_slug( string $page_slug ): string {
 		$menu_manager = Simple_History::get_instance()->get_menu_manager();
-		$page = $menu_manager->get_page_by_slug( $page_slug );
+		$page         = $menu_manager->get_page_by_slug( $page_slug );
 
 		if ( ! $page instanceof Menu_Page ) {
 			return '';

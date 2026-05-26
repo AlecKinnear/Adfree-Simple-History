@@ -19,15 +19,16 @@ class SimplePluginLoggerCest
     public function testPluginActivation(Admin $I) {
         // plugin_activated
         $I->amOnAdminPage('plugins.php');
-        $I->click("#activate-akismet-anti-spam");
-        $I->seeLogMessage('Activated plugin "Akismet Anti-Spam"');
+        // $I->click("#activate-akismet");
+        $I->click("#activate-akismet-anti-spam-spam-protection");
+        $I->seeLogMessage('Activated plugin "Akismet Anti-spam: Spam Protection"');
         $I->seeLogContext(array(
-            'plugin_name' => 'Akismet Anti-Spam',
+            'plugin_name' => 'Akismet Anti-spam: Spam Protection',
             'plugin_slug' => 'akismet',
-            'plugin_title' => '<a href="https://akismet.com/">Akismet Anti-Spam</a>',
-            'plugin_description' => 'Used by millions, Akismet is quite possibly the best way in the world to <strong>protect your blog from spam</strong>. It keeps your site protected even while you sleep. To get started: activate the Akismet plugin and then go to your Akismet Settings page to set up your API key. <cite>By <a href="https://automattic.com/wordpress-plugins/">Automattic</a>.</cite>',
-            'plugin_author' => '<a href="https://automattic.com/wordpress-plugins/">Automattic</a>',
-            'plugin_version' => '5.0.1',
+            'plugin_title' => '<a href="https://akismet.com/">Akismet Anti-spam: Spam Protection</a>',
+            'plugin_description' => 'Used by millions, Akismet is quite possibly the best way in the world to <strong>protect your blog from spam</strong>. Akismet Anti-spam keeps your site protected even while you sleep. To get started: activate the Akismet plugin and then go to your Akismet Settings page to set up your API key. <cite>By <a href="https://automattic.com/wordpress-plugins/">Automattic - Anti-spam Team</a>.</cite>',
+            'plugin_author' => '<a href="https://automattic.com/wordpress-plugins/">Automattic - Anti-spam Team</a>',
+            'plugin_version' => '5.5',
             'plugin_url' => 'https://akismet.com/',
         ));
         
@@ -46,40 +47,30 @@ class SimplePluginLoggerCest
 
         // plugin_deactivated
         $I->amOnAdminPage('plugins.php');
-        $I->click("#deactivate-akismet-anti-spam");
-        $I->seeLogMessage('Deactivated plugin "Akismet Anti-Spam"');
+        // $I->click("#deactivate-akismet");
+        $I->click("#deactivate-akismet-anti-spam-spam-protection");
+        $I->seeLogMessage('Deactivated plugin "Akismet Anti-spam: Spam Protection"');
         $I->seeLogContext(array(
-            'plugin_name' => 'Akismet Anti-Spam',
+            'plugin_name' => 'Akismet Anti-spam: Spam Protection',
             'plugin_slug' => 'akismet',
-            'plugin_title' => '<a href="https://akismet.com/">Akismet Anti-Spam</a>',
-            'plugin_description' => 'Used by millions, Akismet is quite possibly the best way in the world to <strong>protect your blog from spam</strong>. It keeps your site protected even while you sleep. To get started: activate the Akismet plugin and then go to your Akismet Settings page to set up your API key. <cite>By <a href="https://automattic.com/wordpress-plugins/">Automattic</a>.</cite>',
-            'plugin_author' => '<a href="https://automattic.com/wordpress-plugins/">Automattic</a>',
-            'plugin_version' => '5.0.1',
+            'plugin_title' => '<a href="https://akismet.com/">Akismet Anti-spam: Spam Protection</a>',
+            'plugin_description' => 'Used by millions, Akismet is quite possibly the best way in the world to <strong>protect your blog from spam</strong>. Akismet Anti-spam keeps your site protected even while you sleep. To get started: activate the Akismet plugin and then go to your Akismet Settings page to set up your API key. <cite>By <a href="https://automattic.com/wordpress-plugins/">Automattic - Anti-spam Team</a>.</cite>',
+            'plugin_author' => '<a href="https://automattic.com/wordpress-plugins/">Automattic - Anti-spam Team</a>',
+            'plugin_version' => '5.5',
             'plugin_url' => 'https://akismet.com/',
         ));
 
     }
     
-    public function testPluginInstallFail(Admin $I) {          
-        // plugin_installed_failed,
-        // because folder already exists.
-        $I->amOnAdminPage('plugin-install.php');
-        $I->click("Upload Plugin");
-        $I->attachFile('#pluginzip', 'classic-editor.1.6.2.zip');
-        $I->click('Install Now');
-        $I->seeLogMessage('Failed to install plugin "Classic Editor"');
-        $I->seeLogContext(array(
-            'plugin_slug' => '',
-            'plugin_name' => 'Classic Editor',
-            'plugin_version' => '1.6.2',
-            'plugin_author' => 'WordPress Contributors',
-            'plugin_requires_wp' => '4.9',
-            'plugin_requires_php' => '5.2.4',
-            'plugin_install_source' => 'upload',
-            'plugin_upload_name' => 'classic-editor.1.6.2.zip',
-            // 'error_messages' => ... hard to test string...
-            // 'error_data' => ... hard to test string...
-        ));
+    /**
+     * WP 6.8 shows "Replace current with uploaded" option instead
+     * of failing when uploading a plugin that's already installed.
+     * The plugin_installed_failed event is no longer triggered.
+     */
+    public function testPluginInstallFail(Admin $I) {
+        \PHPUnit\Framework\Assert::markTestSkipped(
+            'WP 6.8 no longer triggers plugin_installed_failed — shows "Replace" option instead.'
+        );
     }
     
     // Can't get to work because there is always a left over folder or something.
@@ -87,7 +78,7 @@ class SimplePluginLoggerCest
     public function testPluginInstallSuccess(Admin $I) {
         // - plugin_installed
         $I->cleanUploadsDir();
-        $I->cleanPluginDir('limit-login-attempts-reloaded');
+        $I->deleteDir('/wordpress/wp-content/plugins/limit-login-attempts-reloaded');
 
         $I->amOnAdminPage('plugin-install.php');
         
@@ -101,6 +92,7 @@ class SimplePluginLoggerCest
 
         $I->attachFile('#pluginzip', 'limit-login-attempts-reloaded.2.25.5.zip');
         $I->click('Install Now');
+        $I->waitForText('Plugin installed successfully');
         $I->seeLogMessage('Installed plugin "Limit Login Attempts Reloaded"');
         $I->seeLogContext(array(
             'plugin_slug' => 'limit-login-attempts-reloaded',
@@ -121,19 +113,21 @@ class SimplePluginLoggerCest
         // - plugin_bulk_updated
     }
 
-    public function testPluginDeleted(Admin $I) {      
+    public function testPluginDeleted(Admin $I) {
+        $I->deleteDir('/wordpress/wp-content/plugins/classic-widgets');
         $I->amOnAdminPage('plugin-install.php');
         $I->click("Upload Plugin");
         $I->attachFile('#pluginzip', 'classic-widgets.0.3.zip');
         $I->click('Install Now');
-        
+        $I->waitForText('Plugin installed successfully');
+
         // plugin_deleted
         $I->amOnAdminPage('plugins.php');
         $I->checkOption('[value="classic-widgets/classic-widgets.php"]');                
         $I->selectOption("#bulk-action-selector-top", 'Delete');
         $I->click("#doaction");
         $I->acceptPopup();
-        $I->waitForJqueryAjax();
+        $I->waitForText('was successfully deleted');
         $I->seeLogMessage('Deleted plugin "Classic Widgets"');
         $I->seeLogContext(array(
             'plugin' => 'classic-widgets/classic-widgets.php',

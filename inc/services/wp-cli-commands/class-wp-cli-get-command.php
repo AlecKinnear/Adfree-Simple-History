@@ -52,9 +52,15 @@ class WP_CLI_Get_Command extends WP_CLI_Command {
 		$query        = new Log_Query();
 		$query_result = $query->query(
 			array(
-				'post__in' => [ $event_id ],
+				'post__in'  => [ $event_id ],
+				'ungrouped' => true,
 			)
 		);
+
+		// Handle database errors.
+		if ( is_wp_error( $query_result ) ) {
+			WP_CLI::error( $query_result->get_error_message() );
+		}
 
 		// Return early if no found events.
 		if ( $query_result['total_row_count'] === 0 ) {
@@ -116,13 +122,13 @@ class WP_CLI_Get_Command extends WP_CLI_Command {
 
 		// Append context. For table format = prepend each key with "context_"
 		// and for JSON just add it all to a "context" key.
-		if ( 'table' === $format ) {
+		if ( $format === 'table' ) {
 			foreach ( $event_row->context as $key => $value ) {
 				$prefixed_key                  = 'context_' . $key;
 				$output_array[ $prefixed_key ] = $value;
 				$fields[]                      = $prefixed_key;
 			}
-		} elseif ( 'json' === $format ) {
+		} elseif ( $format === 'json' ) {
 			$message_details      = $simple_history->get_log_row_details_output( $event_row );
 			$message_details_json = $message_details->to_json();
 
@@ -139,12 +145,5 @@ class WP_CLI_Get_Command extends WP_CLI_Command {
 		);
 
 		$formatter->display_item( $output_array );
-
-		// phpcs:disable Squiz.Commenting.InlineComment.InvalidEndChar
-		// If table format then output another one with the message details?
-		// if ( 'table' === $format ) {
-		// $message_details = $simple_history->get_log_row_details_output( $event_row );
-		// sh_d($message_details->to_json());
-		// }
 	}
 }

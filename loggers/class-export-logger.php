@@ -17,7 +17,7 @@ class Export_Logger extends Logger {
 	 * @return array
 	 */
 	public function get_info() {
-		$arr_info = array(
+		return array(
 			'name'        => __( 'Export Logger', 'simple-history' ),
 			'description' => __( 'Logs updates to WordPress export', 'simple-history' ),
 			'capability'  => 'export',
@@ -35,8 +35,6 @@ class Export_Logger extends Logger {
 				),
 			),
 		);
-
-		return $arr_info;
 	}
 
 	/**
@@ -59,7 +57,7 @@ class Export_Logger extends Logger {
 			'created_export',
 			array(
 				'export_content' => $content,
-				'export_args' => Helpers::json_encode( $args ),
+				'export_args'    => Helpers::json_encode( $args ),
 			)
 		);
 	}

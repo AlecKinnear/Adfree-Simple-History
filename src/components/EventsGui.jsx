@@ -1,26 +1,34 @@
-import {
-	useQueryState,
-	parseAsString,
-	parseAsIsoDate,
-	parseAsArrayOf,
-	parseAsJson,
-} from 'nuqs';
-import { z } from 'zod';
 import apiFetch from '@wordpress/api-fetch';
 import { useDebounce } from '@wordpress/compose';
-import { useCallback, useEffect, useMemo, useState } from '@wordpress/element';
+import {
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from '@wordpress/element';
+import { EventsSettingsProvider } from './EventsSettingsContext';
 import { addQueryArgs } from '@wordpress/url';
+import {
+	parseAsArrayOf,
+	parseAsBoolean,
+	parseAsInteger,
+	parseAsIsoDate,
+	parseAsJson,
+	parseAsString,
+	useQueryState,
+} from 'nuqs';
+import { z } from 'zod';
 import {
 	SEARCH_FILTER_DEFAULT_END_DATE,
 	SEARCH_FILTER_DEFAULT_START_DATE,
 } from '../constants';
-import { generateAPIQueryParams } from '../functions';
+import { generateAPIQueryParams, parseApiFetchError } from '../functions';
 import { EventsControlBar } from './EventsControlBar';
 import { EventsList } from './EventsList';
 import { EventsModalIfFragment } from './EventsModalIfFragment';
 import { EventsSearchFilters } from './EventsSearchFilters';
 import { NewEventsNotifier } from './NewEventsNotifier';
-import { __ } from '@wordpress/i18n';
 
 // Schema for the users object.
 const usersSchema = z.array(
@@ -61,6 +69,22 @@ const messageTypesSchema = z.array(
 	} )
 );
 
+// Schema for the initiator objects.
+const initiatorSchema = z.array(
+	z.object( {
+		value: z.string(),
+		initiator_key: z.string().optional(),
+		search_options: z.array( z.string() ),
+	} )
+);
+
+/**
+ * Main component for the events GUI.
+ * Contains the filter/search options and the events list.
+ * Also contains the modal for the events modal.
+ *
+ * @return {JSX.Element} The events GUI component.
+ */
 function EventsGUI() {
 	const [ eventsIsLoading, setEventsIsLoading ] = useState( true );
 	const [ eventsLoadingHasErrors, setEventsLoadingHasErrors ] =
@@ -77,6 +101,9 @@ function EventsGUI() {
 	// Store the max id of the events. Used to check for new events.
 	const [ eventsMaxId, setEventsMaxId ] = useState();
 
+	// Store the max date of the events. Used together with maxId to check for new events.
+	const [ eventsMaxDate, setEventsMaxDate ] = useState();
+
 	// Store the previous max id of the events. Used to modify events in the list so user can see what events are new.
 	const [ prevEventsMaxId, setPrevEventsMaxId ] = useState();
 
@@ -87,20 +114,25 @@ function EventsGUI() {
 	const [ hasExtendedSettingsAddOn, setHasExtendedSettingsAddOn ] =
 		useState( false );
 	const [ hasPremiumAddOn, setHasPremiumAddOn ] = useState( false );
+	const [ hasFailedLoginLimit, setHasFailedLoginLimit ] = useState( false );
+	const [ failedLoginLimitThreshold, setFailedLoginLimitThreshold ] =
+		useState( 0 );
+	const [ failedLoginSuppressedCount, setFailedLoginSuppressedCount ] =
+		useState( 0 );
 	const [ isExperimentalFeaturesEnabled, setIsExperimentalFeaturesEnabled ] =
 		useState( false );
 	const [ eventsAdminPageURL, setEventsAdminPageURL ] = useState();
 	const [ settingsPageURL, setSettingsPageURL ] = useState();
+	const [ alertsPageURL, setAlertsPageURL ] = useState();
+	const [ currentUserId, setCurrentUserId ] = useState( null );
+	const [ userCanManageOptions, setUserCanManageOptions ] = useState( false );
 
 	/**
 	 * Start filter/search options states.
 	 */
 
-	const isDashboard = window.pagenow === 'dashboard';
 	const useQueryStateOptions = {
-		// On dashboard we set throttle to +Infinity to avoid setting the URL at all
-		// (since it's a "shared" page and we don't want to change the URL.)
-		throttleMs: isDashboard ? +Infinity : 50,
+		throttleMs: 50,
 	};
 
 	// Value selected in dates dropdown.
@@ -198,9 +230,211 @@ function EventsGUI() {
 			.withOptions( useQueryStateOptions )
 	);
 
+	// Selected initiator filter.
+	const [ selectedInitiator, setSelectedInitiator ] = useQueryState(
+		'initiator',
+		parseAsJson( initiatorSchema.parse )
+			.withDefault( emptyArray )
+			.withOptions( useQueryStateOptions )
+	);
+
+	// IP address filter.
+	const [ enteredIPAddress, setEnteredIPAddress ] = useQueryState(
+		'ip',
+		parseAsString.withDefault( '' ).withOptions( useQueryStateOptions )
+	);
+
+	// Selected context filters.
+	// Plain string with newline-separated "key:value" pairs, e.g., "_user_id:1\n_sticky:1"
+	const [ selectedContextFilters, setSelectedContextFilters ] = useQueryState(
+		'context',
+		parseAsString.withDefault( '' ).withOptions( useQueryStateOptions )
+	);
+
+	// Metadata search: plain text search across all context values.
+	const [ enteredMetadataSearch, setEnteredMetadataSearch ] = useQueryState(
+		'metadata',
+		parseAsString.withDefault( '' ).withOptions( useQueryStateOptions )
+	);
+
+	// Show only events triggered via an AI agent.
+	const [ showAIOnly, setShowAIOnly ] = useQueryState(
+		'ai-only',
+		parseAsBoolean.withDefault( false ).withOptions( useQueryStateOptions )
+	);
+
+	// Negative/exclusion filters - hide events matching these criteria.
+	// Read-only from URL (no setters needed until Phase 2: GUI controls).
+	const [ excludeSearch ] = useQueryState(
+		'exclude-search',
+		parseAsString.withDefault( '' ).withOptions( useQueryStateOptions )
+	);
+
+	const [ excludeLogLevels ] = useQueryState(
+		'exclude-levels',
+		parseAsArrayOf( parseAsString )
+			.withDefault( emptyArray )
+			.withOptions( useQueryStateOptions )
+	);
+
+	const [ excludeLoggers ] = useQueryState(
+		'exclude-loggers',
+		parseAsArrayOf( parseAsString )
+			.withDefault( emptyArray )
+			.withOptions( useQueryStateOptions )
+	);
+
+	const [ excludeMessages ] = useQueryState(
+		'exclude-messages',
+		parseAsJson( messageTypesSchema.parse )
+			.withDefault( emptyArray )
+			.withOptions( useQueryStateOptions )
+	);
+
+	const [ excludeUsers, setExcludeUsers ] = useQueryState(
+		'exclude-users',
+		parseAsJson( usersSchema.parse )
+			.withDefault( emptyArray )
+			.withOptions( useQueryStateOptions )
+	);
+
+	const [ excludeInitiator ] = useQueryState(
+		'exclude-initiator',
+		parseAsJson( initiatorSchema.parse )
+			.withDefault( emptyArray )
+			.withOptions( useQueryStateOptions )
+	);
+
+	const [ excludeContextFilters ] = useQueryState(
+		'exclude-context',
+		parseAsString.withDefault( '' ).withOptions( useQueryStateOptions )
+	);
+
+	// Surrounding events - show events before and after a specific event ID.
+	// This is an admin-only feature that bypasses normal filters.
+	const [ surroundingEventId ] = useQueryState(
+		'surrounding_event_id',
+		parseAsInteger.withOptions( useQueryStateOptions )
+	);
+
+	// Number of events to show before and after the center event.
+	const [ surroundingCount ] = useQueryState(
+		'surrounding_count',
+		parseAsInteger.withOptions( useQueryStateOptions )
+	);
+
 	/**
 	 * End filter/search options states.
 	 */
+
+	// Derive hideOwnEvents from whether current user is in excludeUsers.
+	const hideOwnEvents = useMemo( () => {
+		if ( ! currentUserId ) {
+			return false;
+		}
+		return excludeUsers.some(
+			( user ) => String( user.id ) === String( currentUserId )
+		);
+	}, [ excludeUsers, currentUserId ] );
+
+	// Callback to toggle hideOwnEvents by adding/removing current user from excludeUsers URL state.
+	const setHideOwnEvents = useCallback(
+		( shouldHide ) => {
+			if ( ! currentUserId ) {
+				return;
+			}
+
+			if ( shouldHide ) {
+				// Add current user to excludeUsers if not already there.
+				const alreadyExcluded = excludeUsers.some(
+					( user ) => String( user.id ) === String( currentUserId )
+				);
+				if ( ! alreadyExcluded ) {
+					setExcludeUsers( [
+						...excludeUsers,
+						{ id: String( currentUserId ), value: 'Me' },
+					] );
+				}
+			} else {
+				// Remove current user from excludeUsers.
+				setExcludeUsers(
+					excludeUsers.filter(
+						( user ) =>
+							String( user.id ) !== String( currentUserId )
+					)
+				);
+			}
+		},
+		[ currentUserId, excludeUsers, setExcludeUsers ]
+	);
+
+	// Store the default date option from the API so we can restore it when clearing filters.
+	const defaultDateOptionRef = useRef( '' );
+
+	// Check if any filter has a non-default value.
+	const hasAnyActiveFilters = useMemo( () => {
+		const hasExpandedFilters =
+			selectedLogLevels.length > 0 ||
+			selectedMessageTypes.length > 0 ||
+			selectedUsersWithId.length > 0 ||
+			selectedInitiator.length > 0 ||
+			enteredIPAddress.trim().length > 0 ||
+			selectedContextFilters.trim().length > 0 ||
+			enteredMetadataSearch.trim().length > 0 ||
+			showAIOnly ||
+			hideOwnEvents;
+
+		const hasSearchText = enteredSearchText.trim().length > 0;
+
+		const hasNonDefaultDate =
+			defaultDateOptionRef.current &&
+			selectedDateOption !== defaultDateOptionRef.current;
+
+		return hasExpandedFilters || hasSearchText || hasNonDefaultDate;
+	}, [
+		selectedLogLevels,
+		selectedMessageTypes,
+		selectedUsersWithId,
+		selectedInitiator,
+		enteredIPAddress,
+		selectedContextFilters,
+		enteredMetadataSearch,
+		showAIOnly,
+		hideOwnEvents,
+		enteredSearchText,
+		selectedDateOption,
+	] );
+
+	// Reset all filter values to defaults.
+	const handleClearFilters = useCallback( () => {
+		setSelectedDateOption( defaultDateOptionRef.current );
+		setEnteredSearchText( '' );
+		setSelectedCustomDateFrom( SEARCH_FILTER_DEFAULT_START_DATE );
+		setSelectedCustomDateTo( SEARCH_FILTER_DEFAULT_END_DATE );
+		setSelectedLogLevels( [] );
+		setSelectedMessageTypes( [] );
+		setSelectedUsersWithId( [] );
+		setSelectedInitiator( [] );
+		setEnteredIPAddress( '' );
+		setSelectedContextFilters( '' );
+		setEnteredMetadataSearch( '' );
+		setShowAIOnly( false );
+		setHideOwnEvents( false );
+	}, [
+		setSelectedDateOption,
+		setEnteredSearchText,
+		setSelectedCustomDateFrom,
+		setSelectedCustomDateTo,
+		setSelectedLogLevels,
+		setSelectedMessageTypes,
+		setSelectedUsersWithId,
+		setSelectedInitiator,
+		setEnteredIPAddress,
+		setSelectedContextFilters,
+		setEnteredMetadataSearch,
+		setShowAIOnly,
+		setHideOwnEvents,
+	] );
 
 	// Generate the events query params.
 	// Memoized to avoid unnecessary re-renders in the child components.
@@ -209,12 +443,26 @@ function EventsGUI() {
 			selectedLogLevels,
 			selectedMessageTypes,
 			selectedUsersWithId,
+			selectedInitiator,
+			enteredIPAddress,
+			selectedContextFilters,
+			enteredMetadataSearch,
+			showAIOnly,
 			enteredSearchText,
 			selectedDateOption,
 			selectedCustomDateFrom,
 			selectedCustomDateTo,
 			page,
 			pagerSize,
+			excludeSearch,
+			excludeLogLevels,
+			excludeLoggers,
+			excludeMessages,
+			excludeUsers,
+			excludeInitiator,
+			excludeContextFilters,
+			surroundingEventId,
+			surroundingCount,
 		} );
 	}, [
 		selectedDateOption,
@@ -222,10 +470,24 @@ function EventsGUI() {
 		selectedLogLevels,
 		selectedMessageTypes,
 		selectedUsersWithId,
+		selectedInitiator,
+		enteredIPAddress,
+		selectedContextFilters,
+		enteredMetadataSearch,
+		showAIOnly,
 		selectedCustomDateFrom,
 		selectedCustomDateTo,
 		page,
 		pagerSize,
+		excludeSearch,
+		excludeLogLevels,
+		excludeLoggers,
+		excludeMessages,
+		excludeUsers,
+		excludeInitiator,
+		excludeContextFilters,
+		surroundingEventId,
+		surroundingCount,
 	] );
 
 	// Reset page to 1 when filters are modified.
@@ -236,8 +498,14 @@ function EventsGUI() {
 		enteredSearchText,
 		selectedLogLevels,
 		selectedMessageTypes,
+		selectedInitiator,
+		enteredIPAddress,
+		selectedContextFilters,
+		enteredMetadataSearch,
+		showAIOnly,
 		selectedCustomDateFrom,
 		selectedCustomDateTo,
+		excludeUsers,
 	] );
 
 	/**
@@ -274,46 +542,28 @@ function EventsGUI() {
 			} );
 
 			// To keep track of new events we need to store both old max id and new max id.
+			// Extract maxId and maxDate from response headers for accurate new event detection.
 			if ( eventsJson && eventsJson.length && page === 1 ) {
-				const firstEventThatIsNotSticky = eventsJson.find(
-					( event ) => ! event.sticky_appended
+				const maxId = eventsResponse.headers.get(
+					'X-SimpleHistory-MaxId'
 				);
-				setEventsMaxId( firstEventThatIsNotSticky.id );
+				const maxDate = eventsResponse.headers.get(
+					'X-SimpleHistory-MaxDate'
+				);
+
+				if ( maxId ) {
+					setEventsMaxId( parseInt( maxId, 10 ) );
+				}
+
+				if ( maxDate ) {
+					setEventsMaxDate( maxDate );
+				}
 			}
 
 			setEvents( eventsJson );
 		} catch ( error ) {
 			setEventsLoadingHasErrors( true );
-
-			// Base error details that we fill with data from the error.
-			const errorDetails = {
-				code: null, // Example number "500".
-				statusText: null, // Example "Internal Server Error".
-				bodyJson: null,
-				bodyText: null,
-			};
-
-			// Fetch error response.
-			if ( error.headers && error.status && error.statusText ) {
-				const contentType = error.headers.get( 'Content-Type' );
-
-				errorDetails.code = error.status;
-				errorDetails.statusText = error.statusText;
-
-				if (
-					contentType &&
-					contentType.includes( 'application/json' )
-				) {
-					errorDetails.bodyJson = await error.json();
-				} else {
-					errorDetails.bodyText = await error.text();
-				}
-			} else {
-				// Unknown error.
-				errorDetails.bodyText = __( 'Unknown error', 'simple-history' );
-			}
-
-			setEventsLoadingErrorDetails( errorDetails );
+			setEventsLoadingErrorDetails( await parseApiFetchError( error ) );
 		} finally {
 			setEventsIsLoading( false );
 		}
@@ -330,12 +580,18 @@ function EventsGUI() {
 	useEffect( () => {
 		// Wait for search options to be loaded before loading events,
 		// or the loadEvents will be called twice.
-		if ( ! searchOptionsLoaded ) {
+		// Exception: when viewing surrounding events, we don't need search options.
+		if ( ! searchOptionsLoaded && ! surroundingEventId ) {
 			return;
 		}
 
 		debouncedLoadEvents();
-	}, [ debouncedLoadEvents, searchOptionsLoaded, eventsReloadTime ] );
+	}, [
+		debouncedLoadEvents,
+		searchOptionsLoaded,
+		eventsReloadTime,
+		surroundingEventId,
+	] );
 
 	/**
 	 * Function to set reload time to current time,
@@ -357,51 +613,195 @@ function EventsGUI() {
 		} );
 	}, [ page ] );
 
+	// Listen for chart date click events from the sidebar chart.
+	// When a date is clicked in the chart, update the date filter to show events for that day.
+	useEffect( () => {
+		const handleChartDateClick = ( event ) => {
+			const { date } = event.detail;
+
+			// Parse the date string (Y-m-d format) to create a Date object.
+			// The date string is in format "2024-10-05".
+			const dateObj = new Date( date + 'T00:00:00Z' );
+
+			// Set the date option to custom range.
+			setSelectedDateOption( 'customRange' );
+
+			// Set both from and to dates to the same date (to show only one day).
+			setSelectedCustomDateFrom( dateObj );
+			setSelectedCustomDateTo( dateObj );
+		};
+
+		window.addEventListener(
+			'SimpleHistory:chartDateClick',
+			handleChartDateClick
+		);
+
+		return () => {
+			window.removeEventListener(
+				'SimpleHistory:chartDateClick',
+				handleChartDateClick
+			);
+		};
+	}, [
+		setSelectedDateOption,
+		setSelectedCustomDateFrom,
+		setSelectedCustomDateTo,
+	] );
+
+	// Listen for event creation from premium add-on or other extensions.
+	// When a new log entry is created, refresh the event list immediately.
+	useEffect( () => {
+		const handleEventCreated = () => {
+			handleReload();
+		};
+
+		window.addEventListener(
+			'SimpleHistory:eventCreated',
+			handleEventCreated
+		);
+
+		return () => {
+			window.removeEventListener(
+				'SimpleHistory:eventCreated',
+				handleEventCreated
+			);
+		};
+	}, [ handleReload ] );
+
+	// Listen for IP address filter events from the IP address popover.
+	// When a user clicks "Show all events from this IP address" in the popover,
+	// update the IP address filter.
+	useEffect( () => {
+		const handleFilterByIPAddress = ( event ) => {
+			const { ipAddress } = event.detail;
+			setEnteredIPAddress( ipAddress );
+		};
+
+		window.addEventListener(
+			'SimpleHistory:filterByIPAddress',
+			handleFilterByIPAddress
+		);
+
+		return () => {
+			window.removeEventListener(
+				'SimpleHistory:filterByIPAddress',
+				handleFilterByIPAddress
+			);
+		};
+	}, [ setEnteredIPAddress ] );
+
+	const eventsSettingsValue = useMemo(
+		() => ( {
+			mapsApiKey,
+			hasExtendedSettingsAddOn,
+			hasPremiumAddOn,
+			hasFailedLoginLimit,
+			experimentalFeaturesEnabled: isExperimentalFeaturesEnabled,
+			eventsSettingsPageURL: settingsPageURL,
+			alertsPageURL,
+			eventsAdminPageURL,
+			userCanManageOptions,
+			searchOptionsLoaded,
+			currentUserId,
+		} ),
+		[
+			mapsApiKey,
+			hasExtendedSettingsAddOn,
+			hasPremiumAddOn,
+			hasFailedLoginLimit,
+			isExperimentalFeaturesEnabled,
+			settingsPageURL,
+			alertsPageURL,
+			eventsAdminPageURL,
+			userCanManageOptions,
+			searchOptionsLoaded,
+			currentUserId,
+		]
+	);
+
 	return (
-		<>
-			<EventsSearchFilters
-				selectedLogLevels={ selectedLogLevels }
-				setSelectedLogLevels={ setSelectedLogLevels }
-				selectedMessageTypes={ selectedMessageTypes }
-				setSelectedMessageTypes={ setSelectedMessageTypes }
-				selectedDateOption={ selectedDateOption }
-				setSelectedDateOption={ setSelectedDateOption }
-				enteredSearchText={ enteredSearchText }
-				setEnteredSearchText={ setEnteredSearchText }
-				selectedCustomDateFrom={ selectedCustomDateFrom }
-				setSelectedCustomDateFrom={ setSelectedCustomDateFrom }
-				selectedCustomDateTo={ selectedCustomDateTo }
-				setSelectedCustomDateTo={ setSelectedCustomDateTo }
-				selectedUsersWithId={ selectedUsersWithId }
-				setSelectedUsersWithId={ setSelectedUsersWithId }
-				searchOptionsLoaded={ searchOptionsLoaded }
-				setSearchOptionsLoaded={ setSearchOptionsLoaded }
-				setPagerSize={ setPagerSize }
-				setMapsApiKey={ setMapsApiKey }
-				setHasExtendedSettingsAddOn={ setHasExtendedSettingsAddOn }
-				setHasPremiumAddOn={ setHasPremiumAddOn }
-				setIsExperimentalFeaturesEnabled={
-					setIsExperimentalFeaturesEnabled
-				}
-				eventsAdminPageURL={ eventsAdminPageURL }
-				setEventsAdminPageURL={ setEventsAdminPageURL }
-				setEventsSettingsPageURL={ setSettingsPageURL }
-				setPage={ setPage }
-				onReload={ handleReload }
-			/>
+		<EventsSettingsProvider value={ eventsSettingsValue }>
+			{ /* Stats bar (EventsStatsBar) was here — removed for now, component still exists if needed. */ }
 
-			<EventsControlBar
-				isExperimentalFeaturesEnabled={ isExperimentalFeaturesEnabled }
-				eventsIsLoading={ eventsIsLoading }
-				eventsTotal={ eventsMeta.total }
-				eventsQueryParams={ eventsQueryParams }
-			/>
+			{ /* Hide filters when viewing surrounding events */ }
+			{ ! surroundingEventId && (
+				<EventsSearchFilters
+					selectedLogLevels={ selectedLogLevels }
+					setSelectedLogLevels={ setSelectedLogLevels }
+					selectedMessageTypes={ selectedMessageTypes }
+					setSelectedMessageTypes={ setSelectedMessageTypes }
+					selectedDateOption={ selectedDateOption }
+					setSelectedDateOption={ setSelectedDateOption }
+					enteredSearchText={ enteredSearchText }
+					setEnteredSearchText={ setEnteredSearchText }
+					selectedCustomDateFrom={ selectedCustomDateFrom }
+					setSelectedCustomDateFrom={ setSelectedCustomDateFrom }
+					selectedCustomDateTo={ selectedCustomDateTo }
+					setSelectedCustomDateTo={ setSelectedCustomDateTo }
+					selectedUsersWithId={ selectedUsersWithId }
+					setSelectedUsersWithId={ setSelectedUsersWithId }
+					selectedInitiator={ selectedInitiator }
+					setSelectedInitiator={ setSelectedInitiator }
+					enteredIPAddress={ enteredIPAddress }
+					setEnteredIPAddress={ setEnteredIPAddress }
+					selectedContextFilters={ selectedContextFilters }
+					setSelectedContextFilters={ setSelectedContextFilters }
+					enteredMetadataSearch={ enteredMetadataSearch }
+					setEnteredMetadataSearch={ setEnteredMetadataSearch }
+					showAIOnly={ showAIOnly }
+					setShowAIOnly={ setShowAIOnly }
+					searchOptionsLoaded={ searchOptionsLoaded }
+					setSearchOptionsLoaded={ setSearchOptionsLoaded }
+					setPagerSize={ setPagerSize }
+					setMapsApiKey={ setMapsApiKey }
+					setHasExtendedSettingsAddOn={ setHasExtendedSettingsAddOn }
+					setHasPremiumAddOn={ setHasPremiumAddOn }
+					setHasFailedLoginLimit={ setHasFailedLoginLimit }
+					setFailedLoginLimitThreshold={
+						setFailedLoginLimitThreshold
+					}
+					setFailedLoginSuppressedCount={
+						setFailedLoginSuppressedCount
+					}
+					isExperimentalFeaturesEnabled={
+						isExperimentalFeaturesEnabled
+					}
+					setIsExperimentalFeaturesEnabled={
+						setIsExperimentalFeaturesEnabled
+					}
+					eventsAdminPageURL={ eventsAdminPageURL }
+					setEventsAdminPageURL={ setEventsAdminPageURL }
+					setEventsSettingsPageURL={ setSettingsPageURL }
+					setAlertsPageURL={ setAlertsPageURL }
+					setPage={ setPage }
+					onReload={ handleReload }
+					setCurrentUserId={ setCurrentUserId }
+					setUserCanManageOptions={ setUserCanManageOptions }
+					hideOwnEvents={ hideOwnEvents }
+					setHideOwnEvents={ setHideOwnEvents }
+					defaultDateOptionRef={ defaultDateOptionRef }
+					handleClearFilters={ handleClearFilters }
+					hasAnyActiveFilters={ hasAnyActiveFilters }
+				/>
+			) }
 
-			<NewEventsNotifier
-				eventsQueryParams={ eventsQueryParams }
-				eventsMaxId={ eventsMaxId }
-				onReload={ handleReload }
-			/>
+			{ /* Hide control bar when viewing surrounding events */ }
+			{ ! surroundingEventId && (
+				<EventsControlBar
+					eventsIsLoading={ eventsIsLoading }
+					eventsTotal={ eventsMeta.total }
+					eventsQueryParams={ eventsQueryParams }
+					hasAnyActiveFilters={ hasAnyActiveFilters }
+					newEventsNotifier={
+						<NewEventsNotifier
+							eventsQueryParams={ eventsQueryParams }
+							eventsMaxId={ eventsMaxId }
+							eventsMaxDate={ eventsMaxDate }
+							onReload={ handleReload }
+						/>
+					}
+				/>
+			) }
 
 			<EventsList
 				eventsIsLoading={ eventsIsLoading }
@@ -410,19 +810,19 @@ function EventsGUI() {
 				page={ page }
 				pagerSize={ pagerSize }
 				setPage={ setPage }
-				eventsMaxId={ eventsMaxId }
 				prevEventsMaxId={ prevEventsMaxId }
-				mapsApiKey={ mapsApiKey }
-				hasExtendedSettingsAddOn={ hasExtendedSettingsAddOn }
-				hasPremiumAddOn={ hasPremiumAddOn }
-				eventsSettingsPageURL={ settingsPageURL }
-				eventsAdminPageURL={ eventsAdminPageURL }
+				failedLoginLimitThreshold={ failedLoginLimitThreshold }
+				failedLoginSuppressedCount={ failedLoginSuppressedCount }
 				eventsLoadingHasErrors={ eventsLoadingHasErrors }
 				eventsLoadingErrorDetails={ eventsLoadingErrorDetails }
+				surroundingEventId={ surroundingEventId }
+				surroundingCount={ surroundingCount }
+				hasActiveFilters={ hasAnyActiveFilters }
+				onClearFilters={ handleClearFilters }
 			/>
 
 			<EventsModalIfFragment />
-		</>
+		</EventsSettingsProvider>
 	);
 }
 

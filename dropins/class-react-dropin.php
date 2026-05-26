@@ -26,6 +26,20 @@ class React_Dropin extends Dropin {
 
 		$asset_file = include SIMPLE_HISTORY_PATH . 'build/index.asset.php';
 
+		// Show error if asset file is not found.
+		if ( $asset_file === false ) {
+			// Bail if function does not exist, ie. WordPress < 6.4.
+			if ( ! function_exists( 'wp_admin_notice' ) ) {
+				return;
+			}
+
+			wp_admin_notice(
+				__( 'Simple History failed to load the asset file for the main GUI. Please try reinstalling the plugin or make sure the JavaScript is built.', 'simple-history' ),
+				[ 'type' => 'error' ]
+			);
+			return;
+		}
+
 		// Load the WP components CSS or some components will be unstyled.
 		wp_enqueue_style( 'wp-components' );
 
@@ -50,7 +64,11 @@ class React_Dropin extends Dropin {
 			id="simple-history-react-root" 
 			class="SimpleHistoryReactRoot is-page"
 			style="<?php echo esc_attr( $this->get_css_style_vars() ); ?>"
-		>Loading</div>
+		>
+			<span class="SimpleHistoryReactRoot-loading">
+				<?php esc_html_e( 'Loading history…', 'simple-history' ); ?>
+			</span>
+		</div>
 		<?php
 	}
 
@@ -60,11 +78,15 @@ class React_Dropin extends Dropin {
 	public function output_element_dashboard() {
 		$this->get_current_theme_colors();
 		?>
-		<div 
-			id="simple-history-react-root" 
-			class="SimpleHistoryReactRoot is-dashboard" 
+		<div
+			id="simple-history-react-root"
+			class="SimpleHistoryReactRoot is-dashboard"
 			style="<?php echo esc_attr( $this->get_css_style_vars() ); ?>"
-		>Loading</div>
+		>
+			<span class="SimpleHistoryReactRoot-loading">
+				<?php esc_html_e( 'Loading history…', 'simple-history' ); ?>
+			</span>
+		</div>
 		<?php
 	}
 
@@ -100,12 +122,12 @@ class React_Dropin extends Dropin {
 
 		$colors = [
 			'default' => [
-				'link' => '#0073aa',
+				'link'       => '#0073aa',
 				'link_focus' => '#135e96',
 			],
 			// "modern" is the only one with a different color scheme.
-			'modern' => [
-				'link' => '#3858e9',
+			'modern'  => [
+				'link'       => '#3858e9',
 				'link_focus' => '#183ad6',
 			],
 		];

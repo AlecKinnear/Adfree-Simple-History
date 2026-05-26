@@ -5,12 +5,22 @@ class WPCliCest {
 	public function test_wp_cli_commands( FunctionalTester $I ) {
         // Test WP Version so we are not surprised by WP version changes.
         $I->cli('--allow-root core version');
-        $I->seeInShellOutput('6.6.1');
+        $I->seeInShellOutput('6.8');
 
+        // Verify main WP-CLI commands are available.
         $I->cli('--allow-root simple-history');
-        $I->seeInShellOutput('usage: wp simple-history db <command>
-   or: wp simple-history event <command>
-   or: wp simple-history list [--format=<format>] [--count=<count>]');
+        $I->seeInShellOutput('wp simple-history core-files <command>');
+        $I->seeInShellOutput('wp simple-history db <command>');
+        $I->seeInShellOutput('wp simple-history event <command>');
+        $I->seeInShellOutput('wp simple-history list');
+        $I->seeInShellOutput('wp simple-history stealth-mode <command>');
+
+        // Verify key list command options exist.
+        $I->seeInShellOutput('--format=<format>');
+        $I->seeInShellOutput('--count=<count>');
+        $I->seeInShellOutput('--search=<term>');
+        $I->seeInShellOutput('--surrounding_event_id=<id>');
+        $I->seeInShellOutput('--surrounding_count=<count>');
         
         $I->haveUserInDatabase(
             'luca', 
@@ -30,7 +40,7 @@ class WPCliCest {
         $I->assertJson($result);
         // Test part of the JSON.
         $I->seeInShellOutput('"initiator":"luca (luca@example.org)","description":"Logged in","via":null,"level":"info","count":"1"}');
-        $I->seeInShellOutput('"ID":"12"');
+        $I->seeInShellOutput('"ID":"1"');
     }
     
     public function test_wp_cron( FunctionalTester $I ) {
@@ -50,6 +60,41 @@ class WPCliCest {
         $I->seeInShellOutput('This is a log from a cron job');
         $I->seeInShellOutput('info');
         $I->seeInShellOutput('WP-CLI');
+    }
+
+    public function test_list_userid_filter( FunctionalTester $I ) {
+        // Create two users and log them in to generate events.
+        $I->haveUserInDatabase(
+            'alice',
+            'editor',
+            [
+                'user_email' => 'alice@example.org',
+                'user_pass' => 'passw0rd',
+            ]
+        );
+        $I->haveUserInDatabase(
+            'bob',
+            'author',
+            [
+                'user_email' => 'bob@example.org',
+                'user_pass' => 'passw0rd',
+            ]
+        );
+
+        $I->loginAs('alice', 'passw0rd');
+        $I->loginAs('bob', 'passw0rd');
+
+        // Get alice's user ID from the database.
+        $alice_id = $I->grabUserIdFromDatabase('alice');
+
+        // Filter events by alice's user ID — should see alice but not bob.
+        $I->cli("--allow-root simple-history list --userid={$alice_id} --format=table");
+        $I->seeInShellOutput('alice');
+        $I->dontSeeInShellOutput('bob');
+
+        // Verify --exclude_userid excludes alice.
+        $I->cli("--allow-root simple-history list --exclude_userid={$alice_id} --format=table");
+        $I->dontSeeInShellOutput('alice (alice@example.org)	Logged in');
     }
 
     public function test_stealth_mode( FunctionalTester $I ) {

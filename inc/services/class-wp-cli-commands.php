@@ -3,6 +3,7 @@
 namespace Simple_History\Services;
 
 use WP_CLI;
+use Simple_History\Helpers;
 use Simple_History\Services\WP_CLI_Commands\WP_CLI_Add_Command;
 use Simple_History\Services\WP_CLI_Commands\WP_CLI_Sticky_Command;
 /**
@@ -13,9 +14,11 @@ class WP_CLI_Commands extends Service {
 	 * Called when module is loaded.
 	 */
 	public function loaded() {
-		if ( defined( WP_CLI::class ) && WP_CLI ) {
-			$this->register_commands();
+		if ( ! defined( WP_CLI::class ) || ! WP_CLI ) {
+			return;
 		}
+
+		$this->register_commands();
 	}
 
 	/**
@@ -67,6 +70,39 @@ class WP_CLI_Commands extends Service {
 		WP_CLI::add_command(
 			'simple-history stealth-mode',
 			WP_CLI_Stealth_Mode_Command::class,
+		);
+
+		// Add command `wp simple-history core-files` commands (check, list-stored).
+		WP_CLI::add_command(
+			'simple-history core-files',
+			WP_CLI_Commands\WP_CLI_Core_Files_Command::class,
+		);
+
+		// Add command `wp simple-history info` — version + premium add-on status.
+		WP_CLI::add_command(
+			'simple-history info',
+			WP_CLI_Commands\WP_CLI_Info_Command::class,
+		);
+
+		// Add command `wp simple-history dev` commands (reset).
+		// Only available when SIMPLE_HISTORY_DEV constant is true.
+		if ( ! Helpers::dev_mode_is_enabled() ) {
+			return;
+		}
+
+		WP_CLI::add_command(
+			'simple-history dev',
+			WP_CLI_Commands\WP_CLI_Dev_Command::class,
+		);
+
+		WP_CLI::add_command(
+			'simple-history dev',
+			WP_CLI_Commands\WP_CLI_Populate_Command::class,
+		);
+
+		WP_CLI::add_command(
+			'simple-history dev',
+			WP_CLI_Commands\WP_CLI_Benchmark_Search_Command::class,
 		);
 	}
 }

@@ -20,7 +20,7 @@ class Event_Details_Container implements Event_Details_Container_Interface {
 	 */
 	public function __construct( $group_or_groups = [], $context = [] ) {
 		$this->context = $context;
-		$this->groups = [];
+		$this->groups  = [];
 
 		if ( is_array( $group_or_groups ) ) {
 			$this->add_groups( $group_or_groups );
@@ -73,7 +73,7 @@ class Event_Details_Container implements Event_Details_Container_Interface {
 
 				if ( is_null( $item->prev_value ) ) {
 					$item->is_added = true;
-				} else if ( is_null( $item->new_value ) ) {
+				} elseif ( is_null( $item->new_value ) ) {
 					$item->is_removed = true;
 				} else {
 					$item->is_changed = true;
@@ -89,10 +89,14 @@ class Event_Details_Container implements Event_Details_Container_Interface {
 	}
 
 	/**
-	 * Remove items with empty values.
-	 * Empty = no new_value set.
-	 * But if item has an old_value it's still interesting, because
-	 * then a change has been made from "something" to "nothing".
+	 * Remove items with empty or unchanged values.
+	 *
+	 * Removes items where:
+	 * - Both new and prev values are empty (nothing to show).
+	 * - Both values are set and identical (no change occurred).
+	 *
+	 * Items with only a prev value (removed) or only a new value (added)
+	 * are kept, as they represent meaningful changes.
 	 *
 	 * @return Event_Details_Container $this
 	 */
@@ -100,9 +104,21 @@ class Event_Details_Container implements Event_Details_Container_Interface {
 
 		foreach ( $this->groups as $group_key => $group ) {
 			foreach ( $group->items as $item_key => $item ) {
-				if ( empty( $item->new_value ) && empty( $item->prev_value ) ) {
-					unset( $this->groups[ $group_key ]->items[ $item_key ] );
+				// Don't remove items that have custom formatters set,
+				// as they may not rely on new_value/prev_value.
+				if ( $item->has_custom_formatter() ) {
+					continue;
 				}
+
+				// Keep items that have at least one non-empty value and differ.
+				$is_empty     = empty( $item->new_value ) && empty( $item->prev_value );
+				$is_unchanged = isset( $item->prev_value ) && $item->new_value === $item->prev_value;
+
+				if ( ! $is_empty && ! $is_unchanged ) {
+					continue;
+				}
+
+				unset( $this->groups[ $group_key ]->items[ $item_key ] );
 			}
 		}
 
@@ -169,6 +185,28 @@ class Event_Details_Container implements Event_Details_Container_Interface {
 		$this->add_group( $event_details_group );
 
 		return $this;
+	}
+
+	/**
+	 * Create from an array of groups.
+	 *
+	 * Returns the group directly when there is only one (so that
+	 * the calling logger's group gets wrapped by Simple_History::get_log_row_details_output()
+	 * with the row context applied). When there are multiple groups,
+	 * wraps them in a container.
+	 *
+	 * @param array<Event_Details_Group> $groups Groups to wrap.
+	 * @return Event_Details_Group|Event_Details_Container
+	 */
+	public static function create_from( $groups ) {
+		if ( count( $groups ) === 1 ) {
+			return $groups[0];
+		}
+
+		$container = new self();
+		$container->add_groups( $groups );
+
+		return $container;
 	}
 
 	/**

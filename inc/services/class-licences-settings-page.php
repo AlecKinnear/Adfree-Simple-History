@@ -7,22 +7,21 @@ use Simple_History\Services\AddOns_Licences;
 use Simple_History\AddOn_Plugin;
 use Simple_History\Menu_Manager;
 use Simple_History\Menu_Page;
-use Simple_History\Services\Setup_Settings_Page as ServicesSetup_Settings_Page;
-use Simple_History\Simple_History;
 use Simple_History\Services\Setup_Settings_Page;
 
 /**
- * Settings page for licences.
+ * Settings page for licences, where users can enter their license keys
+ * for installed add-ons.
  */
 class Licences_Settings_Page extends Service {
 	/** @var AddOns_Licences $licences_service */
 	private $licences_service;
 
-	private const SETTINGS_SECTION_ID = 'simple_history_settings_section_tab_licenses';
-	private const SETTINGS_PAGE_SLUG = 'simple_history_settings_menu_slug_tab_licenses';
-	private const SETTINGS_OPTION_GROUP = 'simple_history_settings_group_tab_licenses';
+	private const SETTINGS_SECTION_ID     = 'simple_history_settings_section_tab_licenses';
+	private const SETTINGS_PAGE_SLUG      = 'simple_history_settings_menu_slug_tab_licenses';
+	private const SETTINGS_OPTION_GROUP   = 'simple_history_settings_group_tab_licenses';
 	private const OPTION_NAME_LICENSE_KEY = 'shp_license_key';
-	private const OPTION_LICENSE_MESSAGE = 'example_plugin_license_message';
+	private const OPTION_LICENSE_MESSAGE  = 'example_plugin_license_message';
 
 	/** @inheritdoc */
 	public function loaded() {
@@ -146,7 +145,7 @@ class Licences_Settings_Page extends Service {
 
 			<p>
 				<?php
-				$link_url = 'https://simple-history.com/add-ons?utm_source=wordpress_admin&utm_medium=Simple_History&utm_campaign=premium_upsell&utm_content=licences-settings';
+				$link_url  = Helpers::get_tracking_url( 'https://simple-history.com/add-ons', 'premium_licences_addons' );
 				$link_text = 'simple-history.com/add-ons';
 
 				echo wp_kses(
@@ -161,8 +160,8 @@ class Licences_Settings_Page extends Service {
 					),
 					[
 						'a' => [
-							'href' => [],
-							'class' => [],
+							'href'   => [],
+							'class'  => [],
 							'target' => [],
 						],
 					]
@@ -184,6 +183,41 @@ class Licences_Settings_Page extends Service {
 	 * how do they enter the key?
 	 */
 	public function license_keys_field_output() {
+
+		// If no add-ons.
+		if ( ! $this->licences_service->has_add_ons() ) {
+			?>
+			<p><?php esc_html_e( 'No add-ons activated.', 'simple-history' ); ?></p>
+			
+			<p>
+				<?php esc_html_e( 'If you have bought an add-on then install and activate the add-on and then return here to enter the license key.', 'simple-history' ); ?>
+			</p>
+
+			<p>
+				<?php
+				$install_help_url  = Helpers::get_tracking_url( 'https://simple-history.com/support/add-ons/how-to-install/', 'docs_licences_install' );
+				$install_help_text = __( 'How to install an add-on', 'simple-history' );
+				echo wp_kses(
+					sprintf(
+						'<a href="%1$s" class="sh-ExternalLink" target="_blank">%2$s</a>',
+						esc_url( $install_help_url ),
+						esc_html( $install_help_text )
+					),
+					[
+						'a' => [
+							'href'   => [],
+							'class'  => [],
+							'target' => [],
+						],
+					]
+				);
+				?>
+			</p>
+			<?php
+
+			return;
+		}
+
 		if ( is_main_site() ) {
 			foreach ( $this->licences_service->get_addon_plugins() as $one_plus_plugin ) {
 				$this->output_licence_key_fields_for_plugin( $one_plus_plugin );
@@ -202,18 +236,18 @@ class Licences_Settings_Page extends Service {
 	 * @param AddOn_Plugin $plus_plugin One plus plugin.
 	 */
 	private function output_licence_key_fields_for_plugin( $plus_plugin ) {
-		$license_key = $plus_plugin->get_license_key();
+		$license_key   = $plus_plugin->get_license_key();
 		$form_post_url = Menu_Manager::get_admin_url_by_slug( 'general_settings_subtab_licenses' );
 
 		// Check for posted form for this plugin.
 		$form_success_message = null;
-		$form_error_message = null;
-		$nonce_valid = wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['_wpnonce'] ?? '' ) ), 'sh-plugin-keys' ) !== false;
+		$form_error_message   = null;
+		$nonce_valid          = wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['_wpnonce'] ?? '' ) ), 'sh-plugin-keys' ) !== false;
 
 		if ( $nonce_valid && isset( $_POST['plugin_slug'] ) && $_POST['plugin_slug'] === $plus_plugin->slug ) {
-			$action_activate = boolval( $_POST['activate'] ?? false );
+			$action_activate   = boolval( $_POST['activate'] ?? false );
 			$action_deactivate = boolval( $_POST['deactivate'] ?? false );
-			$new_licence_key = trim( sanitize_text_field( wp_unslash( $_POST['licence_key'] ?? '' ) ) );
+			$new_licence_key   = trim( sanitize_text_field( wp_unslash( $_POST['licence_key'] ?? '' ) ) );
 
 			if ( $action_activate ) {
 				$activation_result = $plus_plugin->activate_license( $new_licence_key );
@@ -226,8 +260,6 @@ class Licences_Settings_Page extends Service {
 						esc_html( $activation_result['message'] )
 					);
 				}
-
-				// $licence_message = $plus_plugin->get_license_message( $license_key );
 			} elseif ( $action_deactivate ) {
 				$deactivate_result = $plus_plugin->deactivate_license();
 				if ( $deactivate_result === true ) {
@@ -240,7 +272,7 @@ class Licences_Settings_Page extends Service {
 
 		// Get key and message again, because they may have changed.
 		$licence_message = $plus_plugin->get_license_message();
-		$license_key = $plus_plugin->get_license_key();
+		$license_key     = $plus_plugin->get_license_key();
 
 		?>
 		<div class="sh-LicencesPage-plugin">
@@ -261,7 +293,7 @@ class Licences_Settings_Page extends Service {
 						type="text" class="regular-text" name="licence_key" 
 						value="<?php echo esc_attr( $license_key ); ?>" 
 						placeholder="<?php esc_attr_e( 'Enter license key...', 'simple-history' ); ?>"
-					 />
+					/>
 				</p>
 	
 				<?php
@@ -328,7 +360,12 @@ class Licences_Settings_Page extends Service {
 					?>
 					<details style="margin-top: 1em;">
 						<summary>Licence message (debug)</summary>
-						<pre><?php echo esc_html( print_r( $licence_message, true ) ); ?></pre>
+						<pre>
+						<?php 
+							// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_print_r
+							echo esc_html( print_r( $licence_message, true ) ); 
+						?>
+						</pre>
 						<br />Licence key: <code><?php echo esc_html( $license_key ); ?></code>
 					</details>
 					<?php
@@ -345,10 +382,10 @@ class Licences_Settings_Page extends Service {
 	 */
 	public function activated_sites_settings_output() {
 		$link_my_orders_start = '<a href="https://app.lemonsqueezy.com/my-orders/" class="sh-ExternalLink" target="_blank">';
-		$link_my_orders_end = '</a>';
+		$link_my_orders_end   = '</a>';
 
 		$link_billing_start = '<a href="https://simple-history.lemonsqueezy.com/billing" class="sh-ExternalLink" target="_blank">';
-		$link_billing_end = '</a>';
+		$link_billing_end   = '</a>';
 
 		?>
 		<p>

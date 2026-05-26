@@ -2,8 +2,13 @@
 
 namespace Simple_History\Services;
 
+use Simple_History\Helpers;
 use Simple_History\WP_REST_Events_Controller;
 use Simple_History\WP_REST_SearchOptions_Controller;
+use Simple_History\WP_REST_Stats_Controller;
+use Simple_History\WP_REST_Support_Info_Controller;
+use Simple_History\WP_REST_User_Card_Controller;
+use Simple_History\WP_REST_Devtools_Controller;
 
 /**
  * Load the Simple History REST API.
@@ -23,5 +28,22 @@ class REST_API extends Service {
 
 		$search_options_controller = new WP_REST_SearchOptions_Controller();
 		$search_options_controller->register_routes();
+
+		$stats_controller = new WP_REST_Stats_Controller();
+		$stats_controller->register_routes();
+
+		$support_info_controller = new WP_REST_Support_Info_Controller();
+		$support_info_controller->register_routes();
+
+		$user_card_controller = new WP_REST_User_Card_Controller();
+		$user_card_controller->register_routes();
+
+		// Only register dev tools routes when dev mode is enabled.
+		if ( ! Helpers::dev_mode_is_enabled() ) {
+			return;
+		}
+
+		$dev_tools_controller = new WP_REST_Devtools_Controller();
+		$dev_tools_controller->register_routes();
 	}
 }

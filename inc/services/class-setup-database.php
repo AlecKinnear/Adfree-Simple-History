@@ -5,13 +5,18 @@ namespace Simple_History\Services;
 use Simple_History\Event_Details\Event_Details_Group;
 use Simple_History\Event_Details\Event_Details_Item;
 use Simple_History\Event_Details\Event_Details_Item_RAW_Formatter;
+use Simple_History\Helpers;
 use Simple_History\Loggers\Plugin_Logger;
 use Simple_History\Log_Initiators;
+use Simple_History\Services\Auto_Backfill_Service;
 
 /**
  * Setup database and upgrade it if needed.
  */
 class Setup_Database extends Service {
+	/** @var bool Whether this is a fresh install (set in step 1, read in later steps). */
+	private $is_fresh_install = false;
+
 	/**
 	 * @inheritdoc
 	 */
@@ -34,6 +39,65 @@ class Setup_Database extends Service {
 		$this->setup_version_4_to_version_5();
 		$this->setup_version_5_to_version_6();
 		$this->setup_version_6_to_version_7();
+		$this->setup_version_7_to_version_8();
+		$this->setup_version_8_to_version_9();
+	}
+
+	/**
+	 * Recreate missing database tables.
+	 *
+	 * This is called when a query or insert fails due to missing tables.
+	 * It resets the db_version to 0 and runs all setup steps to recreate tables.
+	 *
+	 * This handles scenarios like:
+	 * - Site duplication where tables weren't copied
+	 * - MU plugin with orphaned db_version option
+	 * - Multisite network activation issues
+	 *
+	 * @return bool True if tables were recreated, false if already attempted.
+	 */
+	public static function recreate_tables_if_missing() {
+		// Prevent infinite recursion - only try once per request.
+		static $already_attempted = false;
+
+		if ( $already_attempted ) {
+			return false;
+		}
+
+		$already_attempted = true;
+
+		// Reset db_version to 0 to trigger fresh table creation.
+		delete_option( 'simple_history_db_version' );
+
+		// Get the Setup_Database service instance and run setup steps.
+		$simple_history = \Simple_History\Simple_History::get_instance();
+		$setup_service  = $simple_history->get_service( self::class );
+
+		if ( $setup_service instanceof self ) {
+			$setup_service->run_setup_steps();
+
+			// Log recovery for debugging purposes.
+			if ( WP_DEBUG && WP_DEBUG_LOG ) {
+				// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+				error_log( 'Simple History: Auto-recreated missing database tables' );
+			}
+
+			return true;
+		}
+
+		return false;
+	}
+
+	/**
+	 * Check if a database error indicates missing tables.
+	 *
+	 * @param string $error_message The database error message.
+	 * @return bool True if error indicates table doesn't exist.
+	 */
+	public static function is_table_missing_error( $error_message ) {
+		// MySQL/MariaDB error for missing table.
+		return stripos( $error_message, "doesn't exist" ) !== false
+			|| stripos( $error_message, 'does not exist' ) !== false;
 	}
 
 	/**
@@ -72,29 +136,41 @@ class Setup_Database extends Service {
 		global $wpdb;
 		$table_name = $this->simple_history->get_events_table_name();
 
-		/** @phpstan-ignore requireOnce.fileNotFound */
 		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+
+		$charset_collate = $wpdb->get_charset_collate();
 
 		// Table creation, used to be in register_activation_hook
 		// We change the varchar size to add one num just to force update of encoding. dbdelta didn't see it otherwise.
 		$sql =
 			'CREATE TABLE ' .
 			$table_name .
-			' (
+			" (
 			id bigint(20) NOT NULL AUTO_INCREMENT,
 			date datetime NOT NULL,
 			PRIMARY KEY  (id)
-		) CHARACTER SET=utf8;';
+		) {$charset_collate};";
 
 		// Upgrade db / fix utf for varchars.
 		dbDelta( $sql );
 
-		// Make sure table is using UTF-8. Early versions did not.
-		$sql = sprintf( 'alter table %1$s charset=utf8;', $table_name );
-		// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
-		$wpdb->query( $sql );
-
 		$this->update_db_to_version( 1 );
+
+		// Flag auto-backfill to run on next admin page load.
+		// This populates the history with existing WordPress data (posts, pages, users)
+		// so users don't start with an empty log.
+		Auto_Backfill_Service::set_backfill_pending();
+
+		// Flag this as a fresh install so later migration steps can detect it.
+		$this->is_fresh_install = true;
+
+		// Show a welcome admin notice on the next admin page load.
+		// Only set pending if the option doesn't exist yet (true first install, not table recovery).
+		if ( get_option( Welcome_Message_Service::OPTION_NAME ) !== false ) {
+			return;
+		}
+
+		Welcome_Message_Service::set_pending();
 	}
 
 	/**
@@ -114,21 +190,23 @@ class Setup_Database extends Service {
 		// Each option that is missing a value will make a sql call otherwise = unnecessary.
 		$arr_options = array(
 			array(
-				'name' => 'simple_history_show_as_page',
+				'name'          => 'simple_history_show_as_page',
 				'default_value' => 1,
 			),
 			array(
-				'name' => 'simple_history_show_on_dashboard',
+				'name'          => 'simple_history_show_on_dashboard',
 				'default_value' => 1,
 			),
 		);
 
 		foreach ( $arr_options as $one_option ) {
 			$option_value = get_option( $one_option['name'] );
-			if ( false === ( $option_value ) ) {
-				// Value is not set in db, so set it to a default.
-				update_option( $one_option['name'], $one_option['default_value'], true );
+			if ( $option_value !== false ) {
+				continue;
 			}
+
+			// Value is not set in db, so set it to a default.
+			update_option( $one_option['name'], $one_option['default_value'], true );
 		}
 
 		$this->update_db_to_version( 2 );
@@ -150,11 +228,17 @@ class Setup_Database extends Service {
 		}
 
 		global $wpdb;
-		$table_name = $this->simple_history->get_events_table_name();
+		$table_name          = $this->simple_history->get_events_table_name();
 		$table_name_contexts = $this->simple_history->get_contexts_table_name();
 
-		/** @phpstan-ignore requireOnce.fileNotFound */
 		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+
+		$charset_collate = $wpdb->get_charset_collate();
+
+		// WordPress uses utf8mb4 since 4.2 (4 bytes/char). InnoDB has a 767-byte
+		// index limit on older row formats, so prefix-index any varchar(255)
+		// column we index. floor(767 / 4) = 191. Matches WP core's pattern.
+		$max_index_length = 191;
 
 		// Update old table.
 		$sql = "
@@ -169,7 +253,7 @@ class Setup_Database extends Service {
 				PRIMARY KEY  (id),
 				KEY date (date),
 				KEY loggerdate (logger,date)
-			) CHARSET=utf8;";
+			) {$charset_collate};";
 
 		dbDelta( $sql );
 
@@ -182,11 +266,11 @@ class Setup_Database extends Service {
 				value longtext,
 				PRIMARY KEY  (context_id),
 				KEY history_id (history_id),
-				KEY `key` (`key`)
-			) CHARSET=utf8;
+				KEY `key` (`key`({$max_index_length}))
+			) {$charset_collate};
 		";
 
-		// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+		// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 		$wpdb->query( $sql );
 
 		// Update possible old items to use SimpleLogger.
@@ -201,7 +285,7 @@ class Setup_Database extends Service {
 			$table_name
 		);
 
-		// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+		// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 		$wpdb->query( $sql );
 
 		$this->update_db_to_version( 3 );
@@ -232,15 +316,14 @@ class Setup_Database extends Service {
 
 		$table_name = $this->simple_history->get_events_table_name();
 
-		/** @phpstan-ignore requireOnce.fileNotFound */
 		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
 
 		// If old columns exist = this is an old install, then modify the columns so we still can keep them
 		// we want to keep them because user may have logged items that they want to keep.
-		// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
-		$db_cools = $wpdb->get_col( "DESCRIBE $table_name" ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$db_cols = $wpdb->get_col( "DESCRIBE $table_name" );
 
-		if ( in_array( 'action', $db_cools ) ) {
+		if ( in_array( 'action', $db_cols, true ) ) {
 			$sql = sprintf(
 				'
                         ALTER TABLE %1$s
@@ -253,7 +336,7 @@ class Setup_Database extends Service {
                     ',
 				$table_name
 			);
-			// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+			// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 			$wpdb->query( $sql );
 		}
 
@@ -273,13 +356,13 @@ class Setup_Database extends Service {
 
 		// Set default value for simple_history_detective_mode_enabled and simple_history_experimental_features_enabled.
 		$default_values = [
-			'simple_history_detective_mode_enabled' => 0,
+			'simple_history_detective_mode_enabled'        => 0,
 			'simple_history_experimental_features_enabled' => 0,
 		];
 
 		foreach ( $default_values as $option_name => $default_value ) {
 			$option_existing_value = get_option( $option_name );
-			$option_value_to_set = $default_value;
+			$option_value_to_set   = $default_value;
 
 			if ( $option_existing_value !== false ) {
 				$option_value_to_set = $option_existing_value;
@@ -323,31 +406,71 @@ class Setup_Database extends Service {
 		$this->update_db_to_version( 7 );
 	}
 
+	/**
+	 * Update from db version 7 to version 8.
+	 *
+	 * Ensures the welcome message option exists for upgrading users,
+	 * preventing a DB query for a non-existent option on every page load.
+	 */
+	private function setup_version_7_to_version_8() {
+		if ( $this->get_db_version() !== 7 ) {
+			return;
+		}
+
+		if ( get_option( Welcome_Message_Service::OPTION_NAME ) === false ) {
+			update_option( Welcome_Message_Service::OPTION_NAME, 'seen', true );
+		}
+
+		$this->update_db_to_version( 8 );
+	}
+
+	/**
+	 * Update from db version 8 to version 9.
+	 *
+	 * Stores retention days in the database so it autoloads
+	 * and avoids an extra DB query on every page load.
+	 * Fresh installs: 30 days. Existing installs: 60 days.
+	 */
+	private function setup_version_8_to_version_9() {
+		if ( $this->get_db_version() !== 8 ) {
+			return;
+		}
+
+		$retention_days = $this->is_fresh_install ? 30 : 60;
+		update_option( 'simple_history_retention_days', $retention_days, true );
+
+		$this->update_db_to_version( 9 );
+	}
 
 	/**
 	 * Add welcome messages to the log.
 	 *
-	 * Fired from filter simple_history/loggers_loaded.
+	 * Fired from action simple_history/loggers_loaded.
 	 * Is only called after database has been upgraded, so only on first install (or upgrade).
 	 */
 	public function add_welcome_log_messages() {
+		// Prevent duplicate entries if table recovery re-registers this callback.
+		static $already_run = false;
+		if ( $already_run ) {
+			return;
+		}
+		$already_run = true;
+
 		$plugin_logger = $this->simple_history->get_instantiated_logger_by_slug( 'SimplePluginLogger' );
 
 		if ( ! $plugin_logger instanceof Plugin_Logger ) {
 			return;
 		}
 
-		// Add plugin installed message.
-		// This code is fired twice for some reason.
 		$plugin_logger->info_message(
 			'plugin_installed',
 			[
-				'plugin_name' => 'Simple History',
+				'plugin_name'        => 'Simple History',
 				'plugin_description' =>
 					'Plugin that logs various things that occur in WordPress and then presents those events in a very nice GUI.',
-				'plugin_url' => 'https://simple-history.com',
-				'plugin_version' => SIMPLE_HISTORY_VERSION,
-				'plugin_author' => 'Pär Thernström',
+				'plugin_url'         => 'https://simple-history.com',
+				'plugin_version'     => SIMPLE_HISTORY_VERSION,
+				'plugin_author'      => 'Pär Thernström',
 			]
 		);
 
@@ -355,21 +478,21 @@ class Setup_Database extends Service {
 		$plugin_logger->info_message(
 			'plugin_activated',
 			[
-				'plugin_slug' => 'simple-history',
-				'plugin_name' => 'Simple History',
+				'plugin_slug'  => 'simple-history',
+				'plugin_name'  => 'Simple History',
 				'plugin_title' => '<a href="https://simple-history.com/">Simple History</a>',
 			]
 		);
 
 		$welcome_message_1 = __(
-			'Welcome to Simple History! This is the event history feed. It will contain events that this plugin has logged.',
+			'Simple History is now active and logging events on your site.',
 			'simple-history'
 		);
 
 		SimpleLogger()->info(
 			$welcome_message_1,
 			array(
-				'_initiator' => Log_Initiators::WORDPRESS,
+				'_initiator'         => Log_Initiators::WORDPRESS,
 				'is_welcome_message' => true,
 			)
 		);
@@ -380,7 +503,7 @@ class Setup_Database extends Service {
 	 *
 	 * @param string $html The HTML output.
 	 * @param object $row The row object.
-	 * @return string New HTML output.
+	 * @return string|\Simple_History\Event_Details\Event_Details_Group HTML output or Event_Details_Group with welcome message.
 	 */
 	public function add_row_details_output( $html, $row ) {
 		$is_welcome_message = $row->context['is_welcome_message'] ?? false;
@@ -405,32 +528,37 @@ class Setup_Database extends Service {
 
 		$message .= sprintf(
 			$row_template,
-			'🚀',
-			__( 'Simple History has been successfully installed on your WordPress site and is active and ready to log important changes on your website', 'simple-history' )
-		);
-
-		$message .= sprintf(
-			$row_template,
-			'📝',
-			__( 'As your users work on this site, this feed will contain information about their actions. Page edits, attachment uploads, plugin updates, user logins, site settings changes, and much more will show up in this log.', 'simple-history' )
+			'📋',
+			__( 'Logins, content edits, plugin updates, settings changes, user registrations — every significant action on your site is recorded here automatically.', 'simple-history' )
 		);
 
 		$message .= sprintf(
 			$row_template,
 			'👥',
-			__( "If you have multiple users working on this website, you'll find Simple History especially useful . It logs events from all users, providing a centralized view of what's happening. This makes it easy for you to see and understand the activities of other users on the same website.", 'simple-history' )
+			__( "Running a team site? Each user's actions are tracked individually, so you always know who changed what and when.", 'simple-history' )
 		);
 
 		$message .= sprintf(
 			$row_template,
-			'🌟',
+			'⏳',
 			sprintf(
-				/* translators: 1 %s is a link to the add-ons page */
+				/* translators: %s is a link to the add-ons page */
+				__( 'Your existing posts, pages, and users have already been added to give you a head start. Need your full history? <a href="%s" target="_blank">Simple History Premium</a> lets you backfill with custom options.', 'simple-history' ),
+				esc_url( Helpers::get_tracking_url( 'https://simple-history.com/add-ons/premium/', 'premium_welcome_backfill' ) )
+			)
+		);
+
+		$message .= sprintf(
+			$row_template,
+			'🗓️',
+			sprintf(
+				/* translators: 1: number of days, 2: link to Premium page */
 				__(
-					'Extend Simple History with more features using <a href="%1$s" target="_blank">add-ons</a>.',
+					'Events are kept for %1$s days by default. <a href="%2$s" target="_blank">Simple History Premium</a> extends your retention period so you never lose important history.',
 					'simple-history'
 				),
-				esc_url( 'https://simple-history.com/add-ons/?utm_source=wordpress_admin&utm_medium=Simple_History&utm_campaign=premium_upsell&utm_content=welcome-message' )
+				Helpers::get_clear_history_interval(),
+				esc_url( Helpers::get_tracking_url( 'https://simple-history.com/add-ons/premium/', 'premium_welcome_retention' ) )
 			)
 		);
 

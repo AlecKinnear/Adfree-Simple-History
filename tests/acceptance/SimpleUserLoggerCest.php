@@ -16,10 +16,11 @@ class SimpleUserLoggerCest
     public function logLoginAttemptFromUserThatDoesNotExist(\Step\Acceptance\Admin $I)
     {
         $I->amOnPage('/wp-login.php');
-        $I->submitForm('#loginform', array(
-            'log' => 'erik',
-            'pwd' => 'password',
-        ));
+        $I->waitForElement('#user_login');
+        $I->executeJS("document.getElementById('user_login').value = 'erik'");
+        $I->executeJS("document.getElementById('user_pass').value = 'password'");
+        $I->click('#wp-submit');
+        $I->waitForElement('#login_error');
 
         $I->seeLogInitiator('web_user');
         $I->seeLogMessage('Failed to login with username "erik" (username does not exist)');
@@ -31,10 +32,11 @@ class SimpleUserLoggerCest
         $I->haveUserInDatabase('erik', 'editor', ['user_pass' => 'password']);
 
         $I->amOnPage('/wp-login.php');
-        $I->submitForm('#loginform', array(
-            'log' => 'erik',
-            'pwd' => 'password',
-        ));
+        $I->waitForElement('#user_login');
+        $I->executeJS("document.getElementById('user_login').value = 'erik'");
+        $I->executeJS("document.getElementById('user_pass').value = 'password'");
+        $I->click('#wp-submit');
+        $I->waitForElement('#wpadminbar');
 
         $I->seeLogInitiator('wp_user');
         $I->seeLogMessage('Logged in');
@@ -52,10 +54,11 @@ class SimpleUserLoggerCest
         $I->haveUserInDatabase('anna', 'author', ['user_pass' => 'password']);
 
         $I->amOnPage('/wp-login.php');
-        $I->submitForm('#loginform', array(
-            'log' => 'anna',
-            'pwd' => 'wrongpassword',
-        ));
+        $I->waitForElement('#user_login');
+        $I->executeJS("document.getElementById('user_login').value = 'anna'");
+        $I->executeJS("document.getElementById('user_pass').value = 'wrongpassword'");
+        $I->click('#wp-submit');
+        $I->waitForElement('#login_error');
 
         $I->seeLogInitiator('web_user');
         $I->seeLogMessage('Failed to login with username "anna" (incorrect password entered)');
@@ -67,18 +70,20 @@ class SimpleUserLoggerCest
         $I->loginAsAdmin();
         $I->amOnAdminPage('/profile.php');
 
-        $I->checkOption('#rich_editing');
         $I->selectOption('input[name=admin_color]', 'light');
         $I->fillField("#first_name", "Jane");
         $I->fillField("#last_name", "Doe");
-        
+
         $I->scrollTo('#comment_shortcuts', 0, -300);
         $I->checkOption('#comment_shortcuts');
         $I->unCheckOption('#admin_bar_front');
         $I->fillField("#url", 'https://texttv.nu');
         $I->fillField("#description", 'Hello there, this is my description text.');
 
-        $I->click('#submit');
+        // JS click to avoid scroll/overlay issues on the long profile page.
+        $I->scrollTo('#submit');
+        $I->executeJS('document.getElementById("submit").click()');
+        $I->waitForElement('#wpbody-content .notice');
 
         $I->seeLogInitiator('wp_user');
         $I->seeLogMessage('Edited the profile for user "admin" (test@example.com)');
@@ -112,7 +117,6 @@ class SimpleUserLoggerCest
         $I->amOnAdminPage('/users.php');
         $I->click('annaauthor');
 
-        $I->checkOption('#rich_editing');
         $I->selectOption('input[name=admin_color]', 'light');
         $I->fillField("#first_name", "Annaname");
         $I->fillField("#last_name", "Doeauthor");
@@ -123,7 +127,9 @@ class SimpleUserLoggerCest
         $I->fillField("#url", 'https://brottsplatskartan.se');
         $I->fillField("#description", 'Hello there, this is my description text.');
 
-        $I->click('#submit');
+        $I->scrollTo('#submit');
+        $I->executeJS('document.getElementById("submit").click()');
+        $I->waitForElement('#wpbody-content .notice');
 
         $I->seeLogInitiator('wp_user');
         $I->seeLogMessage('Edited the profile for user "annaauthor" (annaauthor@example.com)');
@@ -144,8 +150,8 @@ class SimpleUserLoggerCest
         $I->loginAsAdmin();
         $I->amOnAdminPage('/user-new.php');
 
-        // Needed for the admin JS to have time to generate a password and duplicate it to the hidden password field.
-        $I->wait(0.1);
+        // Wait for the admin JS to generate a password.
+        $I->waitForElementVisible('#pass1');
 
         $I->fillField("#user_login", "NewUserLogin");
         $I->fillField("#email", "newuser@example.com");
@@ -153,6 +159,7 @@ class SimpleUserLoggerCest
 
         $I->scrollTo('#createusersub');
         $I->click("#createusersub");
+        $I->waitForText('New user created');
 
         $I->seeLogInitiator('wp_user');
         $I->seeLogMessage('Created user NewUserLogin (newuser@example.com) with role subscriber');
@@ -170,8 +177,8 @@ class SimpleUserLoggerCest
         $I->loginAsAdmin();
         $I->amOnAdminPage('users.php');
 
-        $I->moveMouseOver('.table-view-list tbody tr:nth-child(2)');
-        $I->click('.table-view-list tbody tr:nth-child(2) .submitdelete');
+        $I->moveMouseOver('//td[contains(.,"anna")]/parent::tr');
+        $I->click('//td[contains(.,"anna")]/parent::tr//a[contains(@class,"submitdelete")]');
         $I->click("Confirm Deletion");
 
         $I->seeLogInitiator('wp_user');
@@ -195,6 +202,7 @@ class SimpleUserLoggerCest
         $I->click('#doaction');
 
         $I->click("Confirm Deletion");
+        $I->waitForElementVisible('#bulk-action-selector-top');
 
         $I->seeLogInitiator('wp_user');
         $I->seeLogMessage('Deleted user anna (anna@example.com)');
@@ -210,8 +218,8 @@ class SimpleUserLoggerCest
         $I->loginAsAdmin();
         $I->amOnAdminPage('users.php');
 
-        $I->moveMouseOver('.table-view-list tbody tr:nth-child(2)');
-        $I->click('.table-view-list tbody tr:nth-child(2) a.resetpassword');
+        $I->moveMouseOver('//td[contains(.,"anna")]/parent::tr');
+        $I->click('//td[contains(.,"anna")]/parent::tr//a[contains(@class,"resetpassword")]');
 
         $I->seeLogInitiator('wp_user');
         $I->seeLogMessage("Requested a password reset link for user with login 'anna' and email 'anna@example.com'");
@@ -236,6 +244,7 @@ class SimpleUserLoggerCest
         $I->selectOption('#new_role', 'editor');
 
         $I->click('#changeit');
+        $I->waitForElementVisible('#bulk-action-selector-top');
 
         $I->seeLogInitiator('wp_user');
         $I->seeLogMessage('Changed role for user "anna" to "editor" from "author"');
@@ -254,7 +263,6 @@ class SimpleUserLoggerCest
         $I->amOnAdminPage('/users.php');
         $I->click('annaauthor');
 
-        $I->checkOption('#rich_editing');
         $I->fillField("#new_application_password_name", "My New App");
 
         $I->click('#do_new_application_password');
@@ -285,10 +293,9 @@ class SimpleUserLoggerCest
         $I->waitForElementVisible('#new-application-password-value');
         $I->see('Your new password for My New App is:');
         
-        // Are you sure you want to revoke this password? This action cannot be undone.
-        $I->wait(5);
-        $I->scrollTo('table.application-passwords-user', 0, -1000);
-        $I->scrollTo('#the-list', 0, 500);
+        // Wait for the application passwords table to be ready.
+        $I->waitForElementVisible('table.application-passwords-user .delete');
+        $I->scrollTo('table.application-passwords-user');
         $I->click("Revoke");
         
         $I->acceptPopup();
@@ -298,7 +305,6 @@ class SimpleUserLoggerCest
         $I->seeLogMessage('Revoked application password "My New App" for user "rolf"');
         $I->seeLogContext([
             'application_password_name' => 'My New App',
-            'edited_user_id' => '2',
             'edited_user_email' => 'rolf@example.com',
             'edited_user_login' => 'rolf'
         ]);

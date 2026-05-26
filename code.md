@@ -1,65 +1,164 @@
 # Simple History code standard
 
-Since I always forget what standards I use in different projects this file is here to remind me about the standards I use in this project:
+## Code Quality
 
-- Code standards is WordPress own.
-- **phpcodesniffer** is used to format code.
-- **phpstan** is used to check for bugs.
-- **rector** is used to update code.
+For comprehensive code quality guidelines, see the **code-quality** skill which covers:
 
-## phpcodesniffer
+-   PHP standards and style guide
+-   CSS naming conventions (SuitCSS)
+-   Tooling (phpcs, phpstan, rector)
+-   IDE integration
 
-Uses composer package `dealerdirect/phpcodesniffer-composer-installer` to find PHP_CodeSniffer rules automagically. Run `composer install` and then `vendor/bin/phpcs`.
+## Quick Reference
 
-Use PHP 7.4 (the WordPress rules crashes on PHP 8 so far, bug fixed but no version with fix released).
+-   Code standards is WordPress own
+-   **phpcodesniffer** is used to format code
+-   **phpstan** is used to check for bugs
+-   **rector** is used to update code
 
-- `phpcs.xml.dist` is the config used.
-- `vendor/bin/phpcs` to lint PHP from command line after editing.
-- Formatting:
-  `vendor/bin/phpcbf` to fix (write to disk) errors and warning.
+### Common Commands
 
-## phpstan
+```bash
+# Build JavaScript/CSS assets
+# IMPORTANT: Always use `npm run build`, not `npx wp-scripts build`.
+# npm run build compiles all entry points (index, admin-bar, command-palette).
+# npx wp-scripts build only compiles index.js, causing missing asset errors.
+npm run build
 
-**PHPStan** is used to analyze code.
+# Lint PHP
+npm run php:lint
 
-Config is in `phpstan.neon`.
+# Fix PHP issues
+npm run php:lint-fix
 
-- `vendor/bin/phpstan analyse --memory-limit 2048M`
+# Static analysis
+npm run php:phpstan
+```
 
-## Rector
+## Whitespace: Let the Code Breathe
 
-- **Rector** is used to update code to 7.4 and to refactor code to better quality.
-  - Dry run with `vendor/bin/rector process --dry-run`
-  - Run without `--dry-run` to write changes.
-  - Run with docker using `docker run -it --rm -v "$PWD":/usr/src/myapp -w /usr/src/myapp php:7.4-cli php vendor/bin/rector process --dry-run`
-  - After processing code with rector run phpcs to fix formatting.
+Add blank lines before `if` statements, `return` statements, and between logical blocks. Code should "breathe" — don't pack statements tightly together.
+
+```php
+// Good: Blank lines before if and return.
+$simple_history = Simple_History::get_instance();
+
+if ( $this->is_network_query ) {
+    return $simple_history->get_network_events_table_name();
+}
+
+return $simple_history->get_events_table_name();
+
+// Avoid: Everything packed together.
+$simple_history = Simple_History::get_instance();
+if ( $this->is_network_query ) {
+    return $simple_history->get_network_events_table_name();
+}
+return $simple_history->get_events_table_name();
+```
+
+## Comments
+
+### Placement: Above the Code
+
+Place comments on their own line above the code they explain, not as trailing comments on the same line. This follows WordPress coding standards and improves readability.
+
+```php
+// Good: Comment above the code.
+// Return early if user is not authorized.
+return $result;
+
+// Avoid: Trailing comment.
+return $result; // Return because user is not authorized
+```
+
+**Why comments above are preferred:**
+
+-   More visible and easier to scan
+-   Avoids pushing lines beyond character limits
+-   Easier to maintain consistent formatting
+-   Git diffs show comment changes separately from code changes
+
+### Minimize Comments (Clean Code)
+
+Prefer self-documenting code over explanatory comments. As Robert Martin's "Clean Code" advises: comments often compensate for failure to express intent in code.
+
+```php
+// Avoid: Comment explains unclear code.
+// Check if user can edit posts.
+if ( $user->cap & 0x04 ) { ... }
+
+// Better: Self-documenting code needs no comment.
+if ( $user->can_edit_posts() ) { ... }
+```
+
+**When comments are appropriate:**
+
+-   Explaining intent or "why" (not "what")
+-   Warning of consequences
+-   Clarifying complex algorithms
+-   TODO markers for future work
+
+## Frontend Development
+
+### WordPress JavaScript Compatibility
+
+Simple History supports WordPress 6.3+, which means the `@wordpress/*` packages available in wp-admin vary across versions. Important rules:
+
+-   **`@wordpress/components`, `@wordpress/element`, `@wordpress/i18n`, etc. are NOT bundled** — they are loaded as externals from the host WordPress. The `@wordpress/scripts` build tool auto-extracts imports into a `.asset.php` dependency array, and WordPress provides them as global scripts.
+-   **Never adopt new `@wordpress/*` packages or components that only exist in recent WordPress versions** unless you verify they are available in WordPress 6.3. For example, `@wordpress/ui` (introduced in Gutenberg 22.9 / WP 7.0+) would break on older installs.
+-   **Packages listed in `dependencies` in package.json** (e.g., `@wordpress/icons`, `clsx`, `date-fns`) ARE bundled into the plugin's JS build and are safe to use regardless of WP version.
+-   **Packages listed only in `devDependencies`** (e.g., `@wordpress/scripts`, `@wordpress/eslint-plugin`) are build tools, not runtime code.
+-   When considering a new `@wordpress/*` import, check whether `@wordpress/scripts` will treat it as an external (loaded from WP) or bundle it. Externals must exist in the minimum supported WP version.
+-   If you need a component from a newer `@wordpress/*` package, either build a custom equivalent or conditionally load it with version detection.
+
+### Prefer Web Standards Over JavaScript
+
+Use native HTML elements and CSS before reaching for JavaScript:
+
+-   **`<details>`/`<summary>`** for expand/collapse instead of JS toggles
+-   **`<dialog>`** for modals instead of custom JS implementations
+-   **CSS `:focus-visible`** for focus states instead of JS focus management
+-   **Form validation attributes** (`required`, `pattern`, `type="email"`) before JS validation
+-   **CSS Grid/Flexbox** for layouts instead of JS-based positioning
+
+**Why?**
+
+-   Works without JavaScript (progressive enhancement)
+-   Accessible by default (screen readers, keyboard navigation)
+-   Less code to maintain
+-   Better performance
+-   Browser handles edge cases
+
+**Example:**
+
+```html
+<!-- Good: Native HTML -->
+<details>
+	<summary>Show more</summary>
+	<p>Hidden content</p>
+</details>
+
+<!-- Avoid: JavaScript-dependent -->
+<button onclick="toggle()">Show more</button>
+<div id="content" hidden>Hidden content</div>
+```
+
+### Accessibility
+
+-   Follow WCAG AA: minimum 4.5:1 contrast ratio for text, 3:1 for large text and UI components
+-   Always provide accessible names for interactive elements (`aria-label` on inputs without visible labels, `alt` on images)
+-   Don't rely on color alone to convey meaning (add text labels, icons, or patterns)
+-   Use semantic HTML (`<button>` for actions, `<a>` for navigation, `<nav>`, `<main>`, etc.)
 
 ## Changelog
 
-- Try to use format from https://keepachangelog.com.
-
-## How to use in Visual Studio Code
-
-- Run `composer install`
-- Install plugin https://marketplace.visualstudio.com/items?itemName=ValeryanM.vscode-phpsab
-
-## How to use php codesniffer
-
-List errors and warnings:
-
-```bash
-phpcs /path/to/code/myfile.php # lint specific file
-phpcs # be in plugin root and all files will be linted
-npm run lint-php # or use npm script
-```
-
-Fix things:
-
-```bash
-phpcbf /path/to/code
-```
+-   Try to use format from https://keepachangelog.com
+-   Also read and try to follow https://developer.wordpress.org/news/2025/11/the-importance-of-a-good-changelog/
+-   Use the **changelog** skill to add entries to readme.txt
 
 ## Git
 
-- Will try to follow OneFlow:
-  https://www.endoflineblog.com/oneflow-a-git-branching-model-and-workflow
+-   Will try to follow OneFlow:
+    https://www.endoflineblog.com/oneflow-a-git-branching-model-and-workflow
+-   Run phpstan after making php changes in many files or making a larger change in a single file.

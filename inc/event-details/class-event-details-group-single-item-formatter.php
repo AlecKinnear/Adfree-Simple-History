@@ -17,9 +17,14 @@ class Event_Details_Group_Single_Item_Formatter extends Event_Details_Group_Form
 	public function to_html( $group ) {
 		$output = '';
 
+		// Add group title if present (screen reader only for accessibility).
+		if ( $group->get_title() ) {
+			$output .= '<h4 class="screen-reader-text">' . esc_html( $group->get_title() ) . '</h4>';
+		}
+
 		foreach ( $group->items as $item ) {
 			$formatter = $item->get_formatter();
-			$output .= $formatter->to_html();
+			$output   .= $formatter->to_html();
 		}
 
 		return $output;
@@ -37,7 +42,7 @@ class Event_Details_Group_Single_Item_Formatter extends Event_Details_Group_Form
 		// Use same formatter as inline items.
 		foreach ( $group->items as $item ) {
 			$formatter = $item->get_formatter();
-			$output[] = $formatter->to_json();
+			$output[]  = $formatter->to_json();
 		}
 
 		return [

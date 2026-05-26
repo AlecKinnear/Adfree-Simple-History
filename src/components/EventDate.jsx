@@ -12,10 +12,12 @@ import {
 import { useEffect, useState } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 import { navigateToEventPermalink } from '../functions';
+import { useEventsSettings } from './EventsSettingsContext';
 import { EventHeaderItem } from './EventHeaderItem';
 
 export function EventDate( props ) {
 	const { event, eventVariant } = props;
+	const { eventsAdminPageURL } = useEventsSettings();
 	const dateSettings = getDateSettings();
 	const wpDateFormatAbbreviated = dateSettings.formats.datetimeAbbreviated;
 	const wpDateFormatTime = dateSettings.formats.time;
@@ -135,7 +137,20 @@ export function EventDate( props ) {
 
 	let output;
 	if ( eventVariant === 'compact' ) {
-		output = <div>{ formattedDateLiveUpdated }</div>;
+		output = <span>{ formattedDateLiveUpdated }</span>;
+	} else if ( eventVariant === 'dashboard' ) {
+		const eventPermalink = eventsAdminPageURL
+			? `${ eventsAdminPageURL }#simple-history/event/${ event.id }`
+			: undefined;
+		output = eventPermalink ? (
+			<a href={ eventPermalink } title={ formattedDateFormatAbbreviated }>
+				{ formattedDateLiveUpdated }
+			</a>
+		) : (
+			<span title={ formattedDateFormatAbbreviated }>
+				{ formattedDateLiveUpdated }
+			</span>
+		);
 	} else {
 		output = (
 			<Tooltip text={ tooltipText } delay={ 500 }>

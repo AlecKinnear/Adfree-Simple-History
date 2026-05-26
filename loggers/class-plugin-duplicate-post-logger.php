@@ -21,7 +21,7 @@ class Plugin_Duplicate_Post_Logger extends Logger {
 	 * @return array
 	 */
 	public function get_info() {
-		$arr_info = array(
+		return array(
 			'name'        => _x( 'Plugin: Duplicate Posts Logger', 'Logger: Plugin Duplicate Post', 'simple-history' ),
 			'description' => _x(
 				'Logs posts and pages cloned using plugin Duplicate Post',
@@ -37,9 +37,18 @@ class Plugin_Duplicate_Post_Logger extends Logger {
 					'simple-history'
 				),
 			),
+			'labels'      => array(
+				'search' => array(
+					'label'     => _x( 'Duplicate Post', 'Duplicate Post logger: search', 'simple-history' ),
+					'label_all' => _x( 'All duplicated posts', 'Duplicate Post logger: search', 'simple-history' ),
+					'options'   => array(
+						_x( 'Posts duplicated', 'Duplicate Post logger: search', 'simple-history' ) => array(
+							'post_duplicated',
+						),
+					),
+				),
+			),
 		);
-
-		return $arr_info;
 	}
 
 	/**
@@ -52,13 +61,10 @@ class Plugin_Duplicate_Post_Logger extends Logger {
 			return;
 		}
 
-		// When a copy have been made of a post or page
-		// the action 'dp_duplicate_page' or 'dp_duplicate_post'
-		// is fired with args $new_post_id, $post, $status.
-		// We add actions with priority 20 so we probably run after
-		// the plugins own.
-		add_action( 'dp_duplicate_post', array( $this, 'onDpDuplicatePost' ), 100, 3 );
-		add_action( 'dp_duplicate_page', array( $this, 'onDpDuplicatePost' ), 100, 3 );
+		// When a copy has been made of a post or page
+		// the action 'duplicate_post_after_duplicated' is fired
+		// with args $new_post_id, $post, $status, $post_type.
+		add_action( 'duplicate_post_after_duplicated', array( $this, 'onDpDuplicatePost' ), 100, 4 );
 	}
 
 	/**
@@ -67,15 +73,16 @@ class Plugin_Duplicate_Post_Logger extends Logger {
 	 * @param int      $new_post_id id of new post that was created.
 	 * @param \WP_Post $post old post that a copy was made of.
 	 * @param string   $status status of new post.
+	 * @param string   $post_type post type of the duplicated post.
 	 */
-	public function onDpDuplicatePost( $new_post_id, $post, $status ) {
+	public function onDpDuplicatePost( $new_post_id, $post, $status, $post_type = '' ) {
 		$new_post = get_post( $new_post_id );
 
 		$context = array(
-			'new_post_title' => $new_post->post_title,
-			'new_post_id' => $new_post->ID,
+			'new_post_title'        => $new_post->post_title,
+			'new_post_id'           => $new_post->ID,
 			'duplicated_post_title' => $post->post_title,
-			'duplicated_post_id' => $post->ID,
+			'duplicated_post_id'    => $post->ID,
 		);
 
 		$this->info_message( 'post_duplicated', $context );
@@ -87,8 +94,8 @@ class Plugin_Duplicate_Post_Logger extends Logger {
 	 * @param object $row Log row.
 	 */
 	public function get_log_row_plain_text_output( $row ) {
-		$context = $row->context;
-		$new_post_id = $context['new_post_id'] ?? null;
+		$context            = $row->context;
+		$new_post_id        = $context['new_post_id'] ?? null;
 		$duplicated_post_id = $context['duplicated_post_id'] ?? null;
 
 		$message = $row->message;
@@ -96,11 +103,11 @@ class Plugin_Duplicate_Post_Logger extends Logger {
 		// Check if post still is available
 		// It will return a WP_Post Object if post still is in system
 		// If post is deleted from trash (not just moved there), then null is returned.
-		$postDuplicated = get_post( $duplicated_post_id );
+		$postDuplicated    = get_post( $duplicated_post_id );
 		$post_is_available = is_a( $postDuplicated, 'WP_Post' );
 
 		// Try to get singular name.
-		$post_type = $postDuplicated->post_type ?? '';
+		$post_type     = $postDuplicated->post_type ?? '';
 		$post_type_obj = get_post_type_object( $post_type );
 
 		if ( ! is_null( $post_type_obj ) && ! empty( $post_type_obj->labels->singular_name ) ) {
@@ -110,7 +117,7 @@ class Plugin_Duplicate_Post_Logger extends Logger {
 		}
 
 		$context['duplicated_post_edit_link'] = get_edit_post_link( $duplicated_post_id );
-		$context['new_post_edit_link'] = get_edit_post_link( $new_post_id );
+		$context['new_post_edit_link']        = get_edit_post_link( $new_post_id );
 
 		// If post is not available any longer then we can't link to it, so keep plain message then
 		// Also keep plain format if user is not allowed to edit post (edit link is empty).
@@ -128,10 +135,6 @@ class Plugin_Duplicate_Post_Logger extends Logger {
 
 		$context['duplicated_post_edit_link'] = isset( $context['duplicated_post_edit_link'] )
 			? esc_html( $context['duplicated_post_edit_link'] )
-			: '';
-
-		$context['duplicated_post_title'] = isset( $context['duplicated_post_title'] )
-			? esc_html( $context['duplicated_post_title'] )
 			: '';
 
 		$context['duplicated_post_title'] = isset( $context['duplicated_post_title'] )

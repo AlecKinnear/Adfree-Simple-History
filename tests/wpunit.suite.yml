@@ -22,6 +22,7 @@ modules:
       plugins:
         [
           "simple-history/index.php",
+          # Premium plugin NOT listed here - requires WP 6.7+, loaded by tests when needed
           "jetpack/jetpack.php",
           "wp-crontrol/wp-crontrol.php",
           "duplicate-post/duplicate-post.php",

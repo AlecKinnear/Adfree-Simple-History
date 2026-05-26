@@ -1,6 +1,37 @@
 import { LOGLEVELS_OPTIONS } from './constants';
 import { useState, useEffect } from '@wordpress/element';
+import { __ } from '@wordpress/i18n';
 import { format } from 'date-fns';
+
+/**
+ * Fields to request from the events REST API endpoint.
+ * Shared across all event fetchers to keep field lists in sync.
+ */
+export const EVENT_FIELDS = [
+	'id',
+	'logger',
+	'date_local',
+	'date_gmt',
+	'message',
+	'message_html',
+	'message_key',
+	'details_data',
+	'details_html',
+	'loglevel',
+	'occasions_id',
+	'subsequent_occasions_count',
+	'initiator',
+	'initiator_data',
+	'ip_addresses',
+	'via',
+	'ai_origin',
+	'permalink',
+	'sticky',
+	'sticky_appended',
+	'backfilled',
+	'action_links',
+	'reactions',
+];
 
 /**
  * Generate API query object based on selected filters.
@@ -9,6 +40,9 @@ import { format } from 'date-fns';
  * @param {Array}  props.selectedLogLevels
  * @param {Array}  props.selectedMessageTypes
  * @param {Array}  props.selectedUsersWithId
+ * @param {Array}  props.selectedInitiator
+ * @param {string} props.enteredIPAddress
+ * @param {Array}  props.selectedContextFilters
  * @param {string} props.enteredSearchText
  * @param {string} props.selectedDateOption
  * @param {Date}   props.selectedCustomDateFrom
@@ -22,46 +56,50 @@ export function generateAPIQueryParams( props ) {
 		selectedLogLevels,
 		selectedMessageTypes,
 		selectedUsersWithId,
+		selectedInitiator,
+		enteredIPAddress,
+		selectedContextFilters,
+		enteredMetadataSearch,
+		showAIOnly,
 		enteredSearchText,
 		selectedDateOption,
 		selectedCustomDateFrom,
 		selectedCustomDateTo,
 		page,
 		pagerSize,
+		excludeSearch,
+		excludeLogLevels,
+		excludeLoggers,
+		excludeMessages,
+		excludeUsers,
+		excludeInitiator,
+		excludeContextFilters,
+		surroundingEventId,
+		surroundingCount,
 	} = props;
 
-	// Set pager size depending on if page or dashboard.
-	// window.pagenow = 'dashboard_page_simple_history_page' | 'dashboard'
-	let perPage = pagerSize.page;
-	if ( window.pagenow === 'dashboard' ) {
-		perPage = pagerSize.dashboard;
+	// If surrounding event ID is provided, return a minimal query params object.
+	// The surrounding events feature bypasses most filters and shows events
+	// chronologically before and after the specified event.
+	if ( surroundingEventId ) {
+		const params = {
+			surrounding_event_id: surroundingEventId,
+			_fields: EVENT_FIELDS,
+		};
+
+		// Add surrounding_count if specified.
+		if ( surroundingCount ) {
+			params.surrounding_count = surroundingCount;
+		}
+
+		return params;
 	}
 
 	// Create query params based on selected filters.
 	const eventsQueryParams = {
 		page,
-		per_page: perPage,
-		_fields: [
-			'id',
-			'logger',
-			'date_local',
-			'date_gmt',
-			'message',
-			'message_html',
-			'message_key',
-			'details_data',
-			'details_html',
-			'loglevel',
-			'occasions_id',
-			'subsequent_occasions_count',
-			'initiator',
-			'initiator_data',
-			'ip_addresses',
-			'via',
-			'permalink',
-			'sticky',
-			'sticky_appended',
-		],
+		per_page: pagerSize.page,
+		_fields: EVENT_FIELDS,
 	};
 
 	if ( enteredSearchText ) {
@@ -133,13 +171,142 @@ export function generateAPIQueryParams( props ) {
 		eventsQueryParams.users = selectedUsersValues;
 	}
 
+	// Add selected initiators to query params.
+	if ( selectedInitiator.length > 0 ) {
+		const selectedInitiatorValues = selectedInitiator.map(
+			( initiator ) => {
+				return initiator.initiator_key || initiator.value;
+			}
+		);
+		eventsQueryParams.initiator = selectedInitiatorValues;
+	}
+
+	// Add IP address filter to query params.
+	if ( enteredIPAddress && enteredIPAddress.trim().length > 0 ) {
+		eventsQueryParams.ip_address = enteredIPAddress.trim();
+	}
+
+	// Add selected context filters to query params.
+	// selectedContextFilters is a string with newline-separated "key:value" pairs.
+	// Convert to object format: { "key": "value", "key2": "value2" }
+	if ( selectedContextFilters && selectedContextFilters.trim().length > 0 ) {
+		const contextFiltersObject = {};
+		// Split by newline, trim each line, filter empty lines
+		const filterLines = selectedContextFilters
+			.split( '\n' )
+			.map( ( line ) => line.trim() )
+			.filter( ( line ) => line.length > 0 );
+
+		filterLines.forEach( ( contextFilter ) => {
+			// Split on first colon only, in case value contains colons
+			const colonIndex = contextFilter.indexOf( ':' );
+			if ( colonIndex > 0 ) {
+				const key = contextFilter.substring( 0, colonIndex ).trim();
+				const value = contextFilter.substring( colonIndex + 1 ).trim();
+				if ( key && value ) {
+					contextFiltersObject[ key ] = value;
+				}
+			}
+		} );
+
+		if ( Object.keys( contextFiltersObject ).length > 0 ) {
+			eventsQueryParams.context_filters = contextFiltersObject;
+		}
+	}
+
+	// Add metadata search (plain text search across all context values).
+	if ( enteredMetadataSearch && enteredMetadataSearch.trim().length > 0 ) {
+		eventsQueryParams.metadata_search = enteredMetadataSearch.trim();
+	}
+
+	// Show only events that have an AI agent attribution.
+	if ( showAIOnly ) {
+		eventsQueryParams.ai_only = true;
+	}
+
+	// Add exclusion/negative filters - hide events matching these criteria.
+	if ( excludeSearch && excludeSearch.trim().length > 0 ) {
+		eventsQueryParams.exclude_search = excludeSearch;
+	}
+
+	if ( excludeLogLevels && excludeLogLevels.length > 0 ) {
+		eventsQueryParams.exclude_loglevels = excludeLogLevels;
+	}
+
+	if ( excludeLoggers && excludeLoggers.length > 0 ) {
+		eventsQueryParams.exclude_loggers = excludeLoggers;
+	}
+
+	if ( excludeMessages && excludeMessages.length > 0 ) {
+		// Map message objects to logger:message format
+		const excludeMessageValues = excludeMessages.map( ( message ) => {
+			return `${ message.logger_slug }:${ message.message }`;
+		} );
+		eventsQueryParams.exclude_messages = excludeMessageValues;
+	}
+
+	if ( excludeUsers && excludeUsers.length > 0 ) {
+		// Map user objects to user IDs
+		const excludeUserIds = excludeUsers.map( ( user ) => {
+			return parseInt( user.id, 10 );
+		} );
+		eventsQueryParams.exclude_users = excludeUserIds;
+	}
+
+	if ( excludeInitiator && excludeInitiator.length > 0 ) {
+		const excludeInitiatorValues = excludeInitiator.map( ( initiator ) => {
+			return initiator.initiator_key || initiator.value;
+		} );
+		eventsQueryParams.exclude_initiator = excludeInitiatorValues;
+	}
+
+	// Add excluded context filters to query params.
+	// excludeContextFilters is a string with newline-separated "key:value" pairs.
+	// Convert to object format: { "key": "value", "key2": "value2" }
+	if ( excludeContextFilters && excludeContextFilters.trim().length > 0 ) {
+		const excludeContextFiltersObject = {};
+		// Split by newline, trim each line, filter empty lines
+		const filterLines = excludeContextFilters
+			.split( '\n' )
+			.map( ( line ) => line.trim() )
+			.filter( ( line ) => line.length > 0 );
+
+		filterLines.forEach( ( contextFilter ) => {
+			// Split on first colon only, in case value contains colons
+			const colonIndex = contextFilter.indexOf( ':' );
+			if ( colonIndex > 0 ) {
+				const key = contextFilter.substring( 0, colonIndex ).trim();
+				const value = contextFilter.substring( colonIndex + 1 ).trim();
+				if ( key && value ) {
+					excludeContextFiltersObject[ key ] = value;
+				}
+			}
+		} );
+
+		if ( Object.keys( excludeContextFiltersObject ).length > 0 ) {
+			eventsQueryParams.exclude_context_filters =
+				excludeContextFiltersObject;
+		}
+	}
+
 	// Check if there are any search options, besides date.
 	// Anything selected besides date will disable sticky events.
 	const hasSearchOptions =
 		enteredSearchText ||
 		selectedLogLevels.length ||
 		selectedMessageTypes.length ||
-		selectedUsersWithId.length;
+		selectedUsersWithId.length ||
+		selectedInitiator.length > 0 ||
+		( enteredIPAddress && enteredIPAddress.trim().length > 0 ) ||
+		( selectedContextFilters &&
+			selectedContextFilters.trim().length > 0 ) ||
+		( excludeSearch && excludeSearch.trim().length > 0 ) ||
+		( excludeLogLevels && excludeLogLevels.length > 0 ) ||
+		( excludeLoggers && excludeLoggers.length > 0 ) ||
+		( excludeMessages && excludeMessages.length > 0 ) ||
+		( excludeUsers && excludeUsers.length > 0 ) ||
+		( excludeInitiator && excludeInitiator.length > 0 ) ||
+		( excludeContextFilters && excludeContextFilters.trim().length > 0 );
 
 	// If first page and no search options then include sticky events.
 	if ( page === 1 && ! hasSearchOptions ) {
@@ -193,4 +360,85 @@ export const useURLFragment = () => {
  */
 export function randomIntFromInterval( min, max ) {
 	return Math.floor( Math.random() * ( max - min + 1 ) + min );
+}
+
+/**
+ * Build tracking URL with standardized UTM parameters for analytics.
+ *
+ * Creates consistent tracking URLs for monitoring which features generate
+ * user interest in premium functionality. UTM parameters follow a structured
+ * naming convention for easy analysis in Google Analytics.
+ *
+ * Uses utm_campaign as the primary tracking parameter because it appears in
+ * standard GA4 Traffic Acquisition reports (unlike utm_content which requires
+ * Custom Explorations to view).
+ *
+ * @param {string} url         Base URL to add tracking parameters to.
+ * @param {string} utmCampaign Campaign identifier in format: {category}_{location}_{action}
+ *                             Examples:
+ *                             - 'premium_dashboard_sidebar' - Sidebar promo on main dashboard
+ *                             - 'premium_stats_daterange' - Date range feature in stats
+ *                             - 'premium_export_banner' - Export page premium promo
+ *                             - 'premium_events_ipaddress' - IP address Google Maps feature
+ *                             - 'docs_filter_help' - Documentation for filter help
+ * @param {string} utmSource   Traffic source. Default: 'wpadmin'. Alternative: 'wordpress_admin'
+ * @param {string} utmMedium   Traffic medium. Default: 'plugin'. Alternative: 'Simple_History'
+ * @param {string} utmContent  Optional content identifier for A/B testing variations.
+ *                             Only use when testing different versions of the SAME feature.
+ *                             Examples: 'blue_button', 'variant_a', 'top_link'.
+ *                             Leave empty for standard tracking.
+ * @return {string} URL with UTM tracking parameters appended.
+ */
+export function getTrackingUrl(
+	url,
+	utmCampaign,
+	utmSource = 'wpadmin',
+	utmMedium = 'plugin',
+	utmContent = ''
+) {
+	const { addQueryArgs } = wp.url;
+
+	const params = {
+		utm_source: utmSource,
+		utm_medium: utmMedium,
+		utm_campaign: utmCampaign,
+	};
+
+	// Only add utm_content if provided (for A/B testing).
+	if ( utmContent ) {
+		params.utm_content = utmContent;
+	}
+
+	return addQueryArgs( url, params );
+}
+
+/**
+ * Parse an error from wp.apiFetch into a structured details object.
+ *
+ * @param {Error|Response} error The caught error from apiFetch.
+ * @return {Promise<Object>} Error details with code, statusText, bodyJson, bodyText.
+ */
+export async function parseApiFetchError( error ) {
+	const errorDetails = {
+		code: null,
+		statusText: null,
+		bodyJson: null,
+		bodyText: null,
+	};
+
+	if ( error.headers && error.status && error.statusText ) {
+		const contentType = error.headers.get( 'Content-Type' );
+		errorDetails.code = error.status;
+		errorDetails.statusText = error.statusText;
+
+		if ( contentType && contentType.includes( 'application/json' ) ) {
+			errorDetails.bodyJson = await error.json();
+		} else {
+			errorDetails.bodyText = await error.text();
+		}
+	} else {
+		errorDetails.bodyText = __( 'Unknown error', 'simple-history' );
+	}
+
+	return errorDetails;
 }

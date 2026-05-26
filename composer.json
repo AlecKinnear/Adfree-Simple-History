@@ -24,16 +24,21 @@
 		"codeception/module-cli": "^1.0",
 		"codeception/util-universalframework": "^1.0",
 		"rector/rector": "^2.0",
-		"wp-cli/wp-cli-bundle": "^2.9",
+		"wp-cli/wp-cli-bundle": "^2.9 <2.12",
 		"php-stubs/wp-cli-stubs": "dev-master",
 		"phpstan/phpstan": "^2.0",
 		"phpstan/phpstan-deprecation-rules": "^2.0",
 		"phpstan/extension-installer": "^1.3.1",
 		"szepeviktor/phpstan-wordpress": "^2.0",
-		"johnbillion/wp-compat": "^1.1"
+		"johnbillion/wp-compat": "^1.1",
+		"automattic/vipwpcs": "^3.0",
+		"slevomat/coding-standard": "^8.22",
+		"brianhenryie/strauss": "^0.19",
+		"cweagans/composer-patches": "^1.7"
 	},
 	"require": {
-		"php": "^7.4|^8.0"
+		"php": "^7.4|^8.0",
+		"jfcherng/php-diff": "^6.16"
 	},
 	"authors": [
 		{
@@ -54,12 +59,35 @@
 	"scripts": {
 		"lint": "./vendor/bin/phpcs .",
 		"lint-fix": "./vendor/bin/phpcbf .",
-		"test": "./vendor/bin/phpunit"
+		"test": "./vendor/bin/phpunit",
+		"strauss": "./vendor/bin/strauss"
+	},
+	"extra": {
+		"strauss": {
+			"target_directory": "vendor-prefixed",
+			"namespace_prefix": "Simple_History\\Vendor\\",
+			"classmap_prefix": "Simple_History_Vendor_",
+			"packages": [
+				"jfcherng/php-diff",
+				"jfcherng/php-color-output",
+				"jfcherng/php-mb-string",
+				"jfcherng/php-sequence-matcher"
+			]
+		},
+		"patches": {
+			"lucatume/wp-browser": {
+				"[wp-browser] PHP 8.4 explicit-nullable types — see patches/README.md": "patches/wp-browser-php84-nullable.patch"
+			}
+		}
 	},
 	"config": {
+		"platform": {
+			"php": "7.4.33"
+		},
 		"allow-plugins": {
 			"dealerdirect/phpcodesniffer-composer-installer": true,
-			"phpstan/extension-installer": true
+			"phpstan/extension-installer": true,
+			"cweagans/composer-patches": true
 		}
 	}
 }

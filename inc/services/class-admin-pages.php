@@ -2,7 +2,6 @@
 
 namespace Simple_History\Services;
 
-use Simple_History\Dropins\Sidebar_Add_Ons_Dropin;
 use Simple_History\Helpers;
 use Simple_History\Menu_Manager;
 use Simple_History\Simple_History;
@@ -40,7 +39,7 @@ class Admin_Pages extends Service {
 			->set_capability( Helpers::get_view_history_capability() )
 			->set_icon( $logo_icon )
 			->set_location( $admin_page_location )
-			->set_callback( [ $this, 'history_page_output' ] );
+			->set_order( 1 );
 
 		if ( in_array( $admin_page_location, [ 'top', 'bottom' ], true ) ) {
 			// Add "Event log" page that is the first submenu item.
@@ -54,7 +53,10 @@ class Admin_Pages extends Service {
 				->set_capability( Helpers::get_view_history_capability() )
 				->set_callback( [ $this, 'history_page_output' ] )
 				->set_location( 'submenu_default' )
+				->set_order( 2 )
 			);
+		} else {
+			$main_log_page->set_callback( [ $this, 'history_page_output' ] );
 		}
 
 		$main_log_page->add();
@@ -135,9 +137,9 @@ class Admin_Pages extends Service {
 		ob_start();
 
 		// Wrap link around title if we have somewhere to go.
-		$headline_link_target = null;
+		$headline_link_target    = null;
 		$headline_link_start_elm = '';
-		$headline_link_end_elm = '';
+		$headline_link_end_elm   = '';
 
 		$headline_link_target = Menu_Manager::get_admin_url_by_slug( Simple_History::MENU_PAGE_SLUG );
 
@@ -146,29 +148,40 @@ class Admin_Pages extends Service {
 				'<a href="%1$s" class="sh-PageHeader-titleLink">',
 				esc_url( $headline_link_target )
 			);
-			$headline_link_end_elm = '</a>';
+			$headline_link_end_elm   = '</a>';
 		}
 
 		$allowed_link_html = [
 			'a' => [
-				'href' => 1,
+				'href'  => 1,
 				'class' => 1,
 			],
 		];
 
 		$menu_manager = Simple_History::get_instance()->get_menu_manager();
 
-		$main_subnav_html_output = $menu_manager->get_main_subnav_html_output();
+		$main_subnav_html_output          = $menu_manager->get_main_subnav_html_output();
 		$main_subnav_sub_tabs_html_output = $menu_manager->get_main_main_subnav_sub_tabs_html_output();
 
 		?>
 		<header class="sh-PageHeader">
-			<h1 class="sh-PageHeader-title SimpleHistoryPageHeadline">
-				<?php echo wp_kses( $headline_link_start_elm, $allowed_link_html ); ?>          
-				<img width="1000" height="156" class="sh-PageHeader-logo" src="<?php echo esc_attr( SIMPLE_HISTORY_DIR_URL ); ?>css/simple-history-logo.png" alt="Simple History logotype"/>
-				<?php echo wp_kses( $headline_link_end_elm, $allowed_link_html ); ?>
-			</h1>
-			
+			<div class="sh-PageHeader-titleGroup">
+				<h1 class="sh-PageHeader-title SimpleHistoryPageHeadline">
+					<?php echo wp_kses( $headline_link_start_elm, $allowed_link_html ); ?>
+					<img width="1000" height="156" class="sh-PageHeader-logo" src="<?php echo esc_url( SIMPLE_HISTORY_DIR_URL ); ?>css/simple-history-logo.png" alt="Simple History logotype"/>
+					<?php echo wp_kses( $headline_link_end_elm, $allowed_link_html ); ?>
+				</h1>
+
+				<?php
+				/**
+				 * Fires inside the title group, after badges.
+				 *
+				 * @since 5.16
+				 */
+				do_action( 'simple_history/admin_page/title_group_end' );
+				?>
+			</div>
+
 			<?php
 
 			// Output main nav and subnav.
@@ -177,9 +190,76 @@ class Admin_Pages extends Service {
 
 			// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
 			echo $main_subnav_html_output;
+			/**
+			 * Fires inside the page header, just before the closing tag.
+			 *
+			 * @since 5.9
+			 */
+			do_action( 'simple_history/admin_page/header_end' );
 			?>
 		</header>
-		
+
+		<?php
+		// Display dev mode badges above log content, absolutely positioned.
+		if ( Helpers::dev_mode_is_enabled() ) {
+			$toggle_badges = [
+				[
+					'variant'  => 'premium',
+					'active'   => Helpers::is_premium_add_on_active(),
+					'on_text'  => __( 'Premium: Active', 'simple-history' ),
+					'off_text' => __( 'Premium: Inactive', 'simple-history' ),
+					'on_tip'   => __( 'Click to deactivate premium add-on', 'simple-history' ),
+					'off_tip'  => __( 'Click to activate premium add-on', 'simple-history' ),
+					'icon'     => 'dashicons-admin-plugins',
+					'endpoint' => 'toggle-plugin',
+					'data'     => [ 'plugin' => 'simple-history-premium/simple-history-premium.php' ],
+				],
+				[
+					'variant'  => 'experimental',
+					'active'   => Helpers::experimental_features_is_enabled(),
+					'on_text'  => __( 'Experimental: On', 'simple-history' ),
+					'off_text' => __( 'Experimental: Off', 'simple-history' ),
+					'on_tip'   => __( 'Click to disable experimental features', 'simple-history' ),
+					'off_tip'  => __( 'Click to enable experimental features', 'simple-history' ),
+					'icon'     => 'dashicons-admin-tools',
+					'endpoint' => 'toggle-experimental-features',
+					'data'     => [],
+				],
+			];
+			?>
+			<div class="sh-DevBadges">
+				<span class="sh-PageHeader-badge sh-PageHeader-badge--dev" title="<?php esc_attr_e( 'Developer mode is enabled via SIMPLE_HISTORY_DEV constant', 'simple-history' ); ?>"><?php esc_html_e( 'Dev', 'simple-history' ); ?></span>
+				<?php
+				foreach ( $toggle_badges as $badge ) {
+					$state_class = $badge['active'] ? 'is-active' : 'is-inactive';
+					$text        = $badge['active'] ? $badge['on_text'] : $badge['off_text'];
+					$title       = $badge['active'] ? $badge['on_tip'] : $badge['off_tip'];
+					$data_attrs  = '';
+
+					foreach ( $badge['data'] as $key => $value ) {
+						$data_attrs .= sprintf( ' data-%s="%s"', esc_attr( $key ), esc_attr( $value ) );
+					}
+					?>
+					<button
+						class="sh-PageHeader-badge sh-PageHeader-badge--toggle sh-PageHeader-badge--<?php echo esc_attr( $badge['variant'] ); ?> <?php echo esc_attr( $state_class ); ?>"
+						title="<?php echo esc_attr( $title ); ?>"
+						data-endpoint="<?php echo esc_attr( $badge['endpoint'] ); ?>"
+						<?php
+						// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+						echo $data_attrs;
+						?>
+					>
+						<span class="dashicons <?php echo esc_attr( $badge['icon'] ); ?>"></span>
+						<?php echo esc_html( $text ); ?>
+					</button>
+					<?php
+				}
+				?>
+			</div>
+			<?php
+		}
+		?>
+
 		<?php
 		/**
 		 * Fires after the page header in Simple History admin pages.
@@ -216,7 +296,7 @@ class Admin_Pages extends Service {
 		}
 
 		// Run callback function for selected tab or sub-tab.
-		$selected_main_tab = $menu_manager->get_page_by_slug( $menu_manager::get_current_tab_slug() );
+		$selected_main_tab     = $menu_manager->get_page_by_slug( $menu_manager::get_current_tab_slug() );
 		$selected_sub_tab_page = $menu_manager->get_page_by_slug( $menu_manager::get_current_sub_tab_slug() );
 
 		if ( $selected_sub_tab_page !== null ) {
@@ -236,11 +316,19 @@ class Admin_Pages extends Service {
 	 * so bookmarks and old links still work.
 	 */
 	public function on_admin_page_access_denied_redirect_prev_menu_location() {
-		$page = sanitize_text_field( wp_unslash( $_GET['page'] ?? '' ) );
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		$page    = sanitize_text_field( wp_unslash( $_GET['page'] ?? '' ) );
 		$pagenow = $GLOBALS['pagenow'] ?? '';
 
-		// Bail if not correct page.
-		if ( $page !== 'simple_history_page' && $pagenow !== 'index.php' ) {
+		// Only act on the legacy URL `/wp-admin/index.php?page=simple_history_page`.
+		// Both the page slug and pagenow must match — otherwise the hook fires
+		// for unrelated admin_page_access_denied events (issue #639).
+		if ( $page !== 'simple_history_page' || $pagenow !== 'index.php' ) {
+			return;
+		}
+
+		// Don't redirect to a page the user can't access — would loop.
+		if ( ! current_user_can( Helpers::get_view_history_capability() ) ) {
 			return;
 		}
 

@@ -37,7 +37,43 @@ tests/_output/*
 !tests/plugins
 tests/plugins/*
 !tests/plugins/.gitkeep
+!tests/playwright
+tests/playwright/.auth/
+!tests/screenshot
 
 # Local environment files
 db-export-*.sql
 readme.branch.*.md
+simple-history-test.zip
+
+# Ignore the build directory
+# Since 2024-12-30 we build during GitHub deployment.
+build/
+
+# Ignore Claude config files (but allow commands for cross-machine use)
+.claude/*
+!.claude/settings.json
+!.claude/commands/
+!.claude/skills/
+# Skills with sensitive/business content (kept local only)
+.claude/skills/release/
+.claude/skills/local-issues/
+.claude/skills/premium-upsell-design/
+!.claude/hooks/
+!.claude/agents/
+scripts/copy-current-to-simple-history-com.sh
+CLAUDE.local.md
+
+# Docker Claude Code environment
+docker/claude-code/.env
+benchmarks/
+scripts/check-server-logs.sh
+
+# Playwright output
+playwright-report/
+test-results/
+
+# Docs with credentials or business-sensitive content
+docs/channels-local-testing.md
+docs/alerts-feature-research.md
+docs/utm-tracking-guide.md

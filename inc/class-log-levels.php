@@ -7,13 +7,13 @@ namespace Simple_History;
  */
 class Log_Levels {
 	public const EMERGENCY = 'emergency';
-	public const ALERT = 'alert';
-	public const CRITICAL = 'critical';
-	public const ERROR = 'error';
-	public const WARNING = 'warning';
-	public const NOTICE = 'notice';
-	public const INFO = 'info';
-	public const DEBUG = 'debug';
+	public const ALERT     = 'alert';
+	public const CRITICAL  = 'critical';
+	public const ERROR     = 'error';
+	public const WARNING   = 'warning';
+	public const NOTICE    = 'notice';
+	public const INFO      = 'info';
+	public const DEBUG     = 'debug';
 
 	/**
 	 * Return translated loglevel.
@@ -94,9 +94,28 @@ class Log_Levels {
 
 			default:
 				$str_translated = $loglevel;
-		} // End switch().
+		}
 
 		return $str_translated;
+	}
+
+	/**
+	 * Get all valid log levels.
+	 *
+	 * @since 5.13.1
+	 * @return array Array of valid log levels.
+	 */
+	public static function get_valid_log_levels() {
+		return array(
+			self::EMERGENCY,
+			self::ALERT,
+			self::CRITICAL,
+			self::ERROR,
+			self::WARNING,
+			self::NOTICE,
+			self::INFO,
+			self::DEBUG,
+		);
 	}
 
 	/**
@@ -107,17 +126,60 @@ class Log_Levels {
 	 * @return bool True if valid log level, false otherwise.
 	 */
 	public static function is_valid_level( $level ) {
-		$valid_levels = array(
-			self::EMERGENCY,
-			self::ALERT,
-			self::CRITICAL,
-			self::ERROR,
-			self::WARNING,
-			self::NOTICE,
-			self::INFO,
-			self::DEBUG,
-		);
+		return in_array( strtolower( $level ), self::get_valid_log_levels(), true );
+	}
 
-		return in_array( strtolower( $level ), $valid_levels, true );
+	/**
+	 * Get the color associated with a log level.
+	 *
+	 * Returns a hex color code suitable for visual indicators in
+	 * notifications, emails, and other external integrations.
+	 *
+	 * @since 5.6.0
+	 * @param string $level The log level (case-insensitive).
+	 * @return string Hex color code (e.g., '#ff0000').
+	 */
+	public static function get_level_color( $level ) {
+		$level = strtolower( $level );
+
+		$colors = [
+			self::EMERGENCY => '#8b0000', // Dark red.
+			self::ALERT     => '#dc143c', // Crimson.
+			self::CRITICAL  => '#ff0000', // Red.
+			self::ERROR     => '#ff4500', // Orange red.
+			self::WARNING   => '#ffa500', // Orange.
+			self::NOTICE    => '#1e90ff', // Dodger blue.
+			self::INFO      => '#32cd32', // Lime green.
+			self::DEBUG     => '#808080', // Gray.
+		];
+
+		return $colors[ $level ] ?? $colors[ self::INFO ];
+	}
+
+	/**
+	 * Get the emoji associated with a log level.
+	 *
+	 * Returns an emoji character for quick visual scanning in
+	 * notifications and messaging platforms.
+	 *
+	 * @since 5.6.0
+	 * @param string $level The log level (case-insensitive).
+	 * @return string Emoji character.
+	 */
+	public static function get_level_emoji( $level ) {
+		$level = strtolower( $level );
+
+		$emojis = [
+			self::EMERGENCY => '🚨',
+			self::ALERT     => '🔔',
+			self::CRITICAL  => '🔴',
+			self::ERROR     => '❌',
+			self::WARNING   => '⚠️',
+			self::NOTICE    => '📢',
+			self::INFO      => '📝',
+			self::DEBUG     => '🔍',
+		];
+
+		return $emojis[ $level ] ?? '📋';
 	}
 }

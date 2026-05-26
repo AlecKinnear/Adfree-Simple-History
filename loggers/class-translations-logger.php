@@ -20,16 +20,25 @@ class Translations_Logger extends Logger {
 	 * @return array Array with plugin info.
 	 */
 	public function get_info() {
-		$arr_info = array(
+		return array(
 			'name'        => _x( 'Translation Logger', 'Logger: Translations', 'simple-history' ),
 			'description' => _x( 'Log WordPress translation related things', 'Logger: Translations', 'simple-history' ),
 			'capability'  => 'manage_options',
 			'messages'    => array(
 				'translations_updated' => _x( 'Updated translations for "{name}" ({language})', 'Logger: Translations', 'simple-history' ),
 			),
+			'labels'      => array(
+				'search' => array(
+					'label'     => _x( 'Translations', 'Translations logger: search', 'simple-history' ),
+					'label_all' => _x( 'All translation updates', 'Translations logger: search', 'simple-history' ),
+					'options'   => array(
+						_x( 'Translation updates', 'Translations logger: search', 'simple-history' ) => array(
+							'translations_updated',
+						),
+					),
+				),
+			),
 		);
-
-		return $arr_info;
 	}
 
 	/**
@@ -53,11 +62,11 @@ class Translations_Logger extends Logger {
 			return;
 		}
 
-		if ( 'translation' !== $options['type'] ) {
+		if ( $options['type'] !== 'translation' ) {
 			return;
 		}
 
-		if ( 'update' !== $options['action'] ) {
+		if ( $options['action'] !== 'update' ) {
 			return;
 		}
 
@@ -82,8 +91,8 @@ class Translations_Logger extends Logger {
 			}
 
 			$context = array(
-				'name' => $name,
-				'language' => $translation['language'],
+				'name'         => $name,
+				'language'     => $translation['language'],
 				'translations' => $translation,
 				'_occasionsID' => self::class . '/translations_updated',
 			);

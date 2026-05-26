@@ -4,6 +4,8 @@ import { useState } from '@wordpress/element';
 import { __, _n, sprintf } from '@wordpress/i18n';
 import { addQueryArgs } from '@wordpress/url';
 import { EventOccasionsList } from './EventOccasionsList';
+import { getTrackingUrl } from '../functions';
+import { useEventsSettings } from './EventsSettingsContext';
 
 /**
  * Displays some text for failed login attempts.
@@ -15,12 +17,13 @@ import { EventOccasionsList } from './EventOccasionsList';
  * @param {Object} props
  */
 function EventOccasionsAddonsContent( props ) {
+	const { event } = props;
 	const {
-		event,
 		hasExtendedSettingsAddOn,
 		hasPremiumAddOn,
+		hasFailedLoginLimit,
 		eventsSettingsPageURL,
-	} = props;
+	} = useEventsSettings();
 
 	// Bail if the event is not from the SimpleUserLogger.
 	if ( event.logger !== 'SimpleUserLogger' ) {
@@ -35,26 +38,43 @@ function EventOccasionsAddonsContent( props ) {
 		return null;
 	}
 
-	const configureLoginAttemptsLinkDependingOnAddOns =
-		hasExtendedSettingsAddOn || hasPremiumAddOn ? (
+	let content;
+
+	if ( hasExtendedSettingsAddOn || hasPremiumAddOn ) {
+		// Premium/Extended Settings: link to configure.
+		content = (
 			<a
-				href={ `${ eventsSettingsPageURL }&selected-sub-tab=failed-login-attempts` }
+				href={ `${ eventsSettingsPageURL }&selected-tab=general_settings_subtab_general&selected-sub-tab=failed-login-attempts` }
 			>
 				{ __( 'Configure failed login attempts', 'simple-history' ) }
 			</a>
-		) : (
-			<ExternalLink href="https://simple-history.com/add-ons/premium/?utm_source=wordpress_admin&utm_medium=Simple_History&utm_campaign=premium_upsell&utm_content=login-attempts-limit#limit-number-of-failed-login-attempts">
+		);
+	} else if ( ! hasFailedLoginLimit ) {
+		// No limiting active: upsell the feature.
+		content = (
+			<ExternalLink
+				href={ getTrackingUrl(
+					'https://simple-history.com/add-ons/premium/#limit-number-of-failed-login-attempts',
+					'premium_events_loginlimit'
+				) }
+			>
 				{ __(
 					'Limit logged login attempts (Premium)',
 					'simple-history'
 				) }
 			</ExternalLink>
 		);
+	}
+	// When hasFailedLoginLimit is active, the banner handles the messaging.
+
+	if ( ! content ) {
+		return null;
+	}
 
 	return (
 		<div className="SimpleHistoryLogitem__occasionsAddOns">
 			<p className="SimpleHistoryLogitem__occasionsAddOnsText">
-				{ configureLoginAttemptsLinkDependingOnAddOns }
+				{ content }
 			</p>
 		</div>
 	);
@@ -69,9 +89,6 @@ export function EventOccasions( props ) {
 	const {
 		event,
 		eventVariant,
-		hasExtendedSettingsAddOn,
-		hasPremiumAddOn,
-		eventsSettingsPageURL,
 	} = props;
 	const { subsequent_occasions_count: subsequentOccasionsCount } = event;
 	const [ isLoadingOccasions, setIsLoadingOccasions ] = useState( false );
@@ -112,56 +129,59 @@ export function EventOccasions( props ) {
 				'subsequent_occasions_count',
 				'initiator',
 				'initiator_data',
+				'ip_addresses',
 				'via',
 			],
 		};
 
-		const eventsResponse = await apiFetch( {
-			path: addQueryArgs(
-				'/simple-history/v1/events',
-				eventsQueryParams
-			),
-			// Skip parsing to be able to retrieve headers.
-			parse: false,
-		} );
+		try {
+			const eventsResponse = await apiFetch( {
+				path: addQueryArgs(
+					'/simple-history/v1/events',
+					eventsQueryParams
+				),
+				// Skip parsing to be able to retrieve headers.
+				parse: false,
+			} );
 
-		const responseJson = await eventsResponse.json();
+			const responseJson = await eventsResponse.json();
 
-		setOccasions( responseJson );
-		setIsLoadingOccasions( false );
-		setIsShowingOccasions( true );
+			setOccasions( responseJson );
+			setIsShowingOccasions( true );
+		} catch ( error ) {
+			// eslint-disable-next-line no-console
+			console.error( 'Simple History: Failed to load occasions', error );
+		} finally {
+			setIsLoadingOccasions( false );
+		}
 	};
 
 	const showOccasionsEventsContent = (
-		<>
-			<div className="SimpleHistoryLogitem__occasions">
-				<Button
-					variant="link"
-					onClick={ ( evt ) => {
-						loadOccasions();
-						evt.preventDefault();
-					} }
-				>
-					{ sprintf(
-						/* translators: %s: number of similar events */
-						_n(
-							'+%1$s similar event',
-							'+%1$s similar events',
-							subsequentOccasionsCount,
-							'simple-history'
-						),
-						subsequentOccasionsCount
-					) }
-				</Button>
+		<div className="SimpleHistoryLogitem__occasions">
+			<Button
+				variant="link"
+				aria-expanded={ false }
+				onClick={ ( evt ) => {
+					loadOccasions();
+					evt.preventDefault();
+				} }
+			>
+				{ sprintf(
+					/* translators: %s: number of similar events */
+					_n(
+						'+%1$s similar event',
+						'+%1$s similar events',
+						subsequentOccasionsCount - 1,
+						'simple-history'
+					),
+					subsequentOccasionsCount - 1
+				) }
+			</Button>
 
-				<EventOccasionsAddonsContent
-					event={ event }
-					eventsSettingsPageURL={ eventsSettingsPageURL }
-					hasExtendedSettingsAddOn={ hasExtendedSettingsAddOn }
-					hasPremiumAddOn={ hasPremiumAddOn }
-				/>
-			</div>
-		</>
+			<EventOccasionsAddonsContent
+				event={ event }
+			/>
+		</div>
 	);
 
 	return (
@@ -171,23 +191,33 @@ export function EventOccasions( props ) {
 				: null }
 
 			{ isLoadingOccasions ? (
-				<span>{ __( 'Loading…', 'simple-history' ) }</span>
+				<div className="SimpleHistoryLogitem__occasions">
+					{ __( 'Loading…', 'simple-history' ) }
+				</div>
 			) : null }
 
 			{ isShowingOccasions ? (
 				<>
-					<span>
-						{ sprintf(
-							/* translators: %s: number of similar events */
-							__( 'Showing %1$s more', 'simple-history' ),
-							subsequentOccasionsCount - 1
-						) }
-					</span>
+					<div className="SimpleHistoryLogitem__occasions">
+						<Button
+							variant="link"
+							aria-expanded={ true }
+							onClick={ () => setIsShowingOccasions( false ) }
+						>
+							{ sprintf(
+								/* translators: %s: number of similar events */
+								__( 'Showing %1$s more', 'simple-history' ),
+								subsequentOccasionsCount - 1
+							) }
+						</Button>
+					</div>
 
 					<EventOccasionsList
 						isLoadingOccasions={ isLoadingOccasions }
 						isShowingOccasions={ isShowingOccasions }
 						occasions={ occasions }
+						parentEvent={ event }
+						eventVariant={ eventVariant }
 						subsequent_occasions_count={ subsequentOccasionsCount }
 						occasionsCountMaxReturn={ occasionsCountMaxReturn }
 					/>

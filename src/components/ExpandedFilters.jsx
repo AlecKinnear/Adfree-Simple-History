@@ -1,19 +1,24 @@
 import apiFetch from '@wordpress/api-fetch';
 import {
-	BaseControl,
+	CheckboxControl,
 	Flex,
 	FlexBlock,
 	FlexItem,
 	FormTokenField,
+	Icon,
+	TextareaControl,
+	__experimentalInputControl as InputControl,
 } from '@wordpress/components';
-import { useState, useEffect } from '@wordpress/element';
+import { useEffect, useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
+import { help } from '@wordpress/icons';
 import { addQueryArgs } from '@wordpress/url';
 import { LOGLEVELS_OPTIONS, SUBITEM_PREFIX } from '../constants';
+import { getTrackingUrl } from '../functions';
 
 /**
  * More filters that are hidden by default.
- * Includes log levels, message types and users.
+ * Includes users, message types, log levels, initiators, metadata, and context.
  *
  * @param {Object} props
  */
@@ -25,7 +30,17 @@ export function ExpandedFilters( props ) {
 		setSelectedMessageTypes,
 		selectedUsersWithId,
 		setSelectedUsersWithId,
+		selectedInitiator,
+		setSelectedInitiator,
+		selectedContextFilters,
+		setSelectedContextFilters,
+		enteredMetadataSearch,
+		setEnteredMetadataSearch,
+		showAIOnly,
+		setShowAIOnly,
 		searchOptions,
+		hideOwnEvents,
+		setHideOwnEvents,
 	} = props;
 
 	// Array with objects that contains message types suggestions, used in the message types select control.
@@ -38,6 +53,49 @@ export function ExpandedFilters( props ) {
 	// and that is used to display user suggestions in the FormTokenField component.
 	// userSuggestions is an array of objects with properties "id" (user id) and "value" (name email).
 	const [ userSuggestions, setUserSuggestions ] = useState( [] );
+
+	// Generate initiator suggestions for the FormTokenField.
+	const [ initiatorSuggestions, setInitiatorSuggestions ] = useState( [] );
+
+	// Update initiator suggestions when searchOptions changes
+	useEffect( () => {
+		if ( searchOptions?.initiators ) {
+			const suggestions = searchOptions.initiators
+				.filter( Boolean )
+				.map( ( initiator ) => ( {
+					value: initiator.label,
+					initiator_key: initiator.value,
+					search_options: [ initiator.label ],
+				} ) );
+
+			setInitiatorSuggestions( suggestions );
+		}
+	}, [ searchOptions ] );
+
+	const handleInitiatorsChange = ( nextValues ) => {
+		nextValues.map( ( value, index ) => {
+			if ( typeof value === 'string' ) {
+				// This is a new entry, we need to replace the string with an object.
+				// Find the initiator suggestion that has the same label as the value.
+				const initiatorSuggestion = initiatorSuggestions.find(
+					( suggestion ) => {
+						return suggestion.value.trim() === value.trim();
+					}
+				);
+
+				if ( initiatorSuggestion ) {
+					nextValues[ index ] = initiatorSuggestion;
+				}
+			} else {
+				// This is an existing entry that already is an object.
+				// No need to do anything.
+			}
+
+			return value;
+		} );
+
+		setSelectedInitiator( nextValues );
+	};
 
 	// Generate loglevels suggestions based on LOGLEVELS_OPTIONS.
 	// This way we can find the original untranslated label.
@@ -99,18 +157,26 @@ export function ExpandedFilters( props ) {
 			path: addQueryArgs( '/simple-history/v1/search-user', {
 				q: searchText,
 			} ),
-		} ).then( ( searchUsersResponse ) => {
-			const userSuggestionsLocal = [];
+		} )
+			.then( ( searchUsersResponse ) => {
+				const userSuggestionsLocal = [];
 
-			searchUsersResponse.forEach( ( user ) => {
-				userSuggestionsLocal.push( {
-					id: user.id,
-					value: user.display_name + ' (' + user.user_email + ')',
+				searchUsersResponse.forEach( ( user ) => {
+					userSuggestionsLocal.push( {
+						id: user.id,
+						value: user.display_name + ' (' + user.user_email + ')',
+					} );
 				} );
-			} );
 
-			setUserSuggestions( userSuggestionsLocal );
-		} );
+				setUserSuggestions( userSuggestionsLocal );
+			} )
+			.catch( ( error ) => {
+				// eslint-disable-next-line no-console
+				console.error(
+					'Simple History: Failed to search users',
+					error
+				);
+			} );
 	};
 
 	/**
@@ -180,10 +246,114 @@ export function ExpandedFilters( props ) {
 		setSelectedMessageTypes( nextValues );
 	};
 
+	const GRID_UNIT = '8px';
+	const filterFieldStyle = { maxWidth: '310px', backgroundColor: 'white' };
+	const filterRowStyle = {
+		margin: `${ GRID_UNIT } 0`,
+	};
+	const labelMarginStyle = {
+		margin: `${ GRID_UNIT } 0`,
+	};
+
 	return (
 		<div>
-			<Flex align="top" gap="0" style={ { margin: '0.5em 0' } }>
-				<FlexItem style={ { margin: '.5em 0' } }>
+			<Flex align="top" gap="0" style={ filterRowStyle }>
+				<FlexItem style={ labelMarginStyle }>
+					<div className="SimpleHistory__filters__filterLabel">
+						{ __( 'Users', 'simple-history' ) }
+					</div>
+				</FlexItem>
+				<FlexBlock>
+					<div
+						className="SimpleHistory__filters__loglevels__select"
+						style={ filterFieldStyle }
+					>
+						<FormTokenField
+							__experimentalAutoSelectFirstMatch
+							__experimentalExpandOnFocus
+							__experimentalShowHowTo={ false }
+							label={ __( 'Users', 'simple-history' ) }
+							placeholder={ __( 'All users', 'simple-history' ) }
+							onChange={ handleUserChange }
+							onInputChange={ searchUsers }
+							suggestions={ userSuggestions.map(
+								( suggestion ) => {
+									return suggestion.value;
+								}
+							) }
+							value={ selectedUsersWithId }
+						/>
+					</div>
+					{ /* Extra bottom margin compensates for checkbox's compact height to match row spacing. */ }
+					{ /* paddingLeft aligns checkbox edge with the input border above. */ }
+					<div
+						style={ {
+							marginTop: `calc(${ GRID_UNIT } / 2)`,
+							marginBottom: `calc(${ GRID_UNIT } / 2 + 4px)`,
+							paddingLeft: '1px',
+						} }
+					>
+						<CheckboxControl
+							__nextHasNoMarginBottom
+							label={ __(
+								'Hide my own events',
+								'simple-history'
+							) }
+							checked={ hideOwnEvents }
+							onChange={ setHideOwnEvents }
+						/>
+					</div>
+				</FlexBlock>
+			</Flex>
+
+			<Flex align="top" gap="0" style={ filterRowStyle }>
+				<FlexItem style={ labelMarginStyle }>
+					<div className="SimpleHistory__filters__filterLabel">
+						{ __( 'Message types', 'simple-history' ) }
+					</div>
+				</FlexItem>
+				<FlexBlock>
+					<div
+						className="SimpleHistory__filters__loglevels__select"
+						style={ filterFieldStyle }
+					>
+						<FormTokenField
+							__experimentalAutoSelectFirstMatch
+							__experimentalExpandOnFocus
+							__experimentalShowHowTo={ false }
+							label={ __( 'Message types', 'simple-history' ) }
+							placeholder={ __(
+								'All message types',
+								'simple-history'
+							) }
+							onChange={ handleMessageTypesChange }
+							value={ selectedMessageTypes.map( ( item ) => ( {
+								...item,
+								value: item.value.replace( SUBITEM_PREFIX, '' ),
+							} ) ) }
+							suggestions={ messageTypesSuggestions.map(
+								( suggestion ) => {
+									return suggestion.value;
+								}
+							) }
+							__experimentalRenderItem={ ( localProps ) => {
+								if (
+									! localProps.item.startsWith(
+										SUBITEM_PREFIX
+									)
+								) {
+									return <strong>{ localProps.item }</strong>;
+								}
+
+								return localProps.item;
+							} }
+						/>
+					</div>
+				</FlexBlock>
+			</Flex>
+
+			<Flex align="top" gap="0" style={ filterRowStyle }>
+				<FlexItem style={ labelMarginStyle }>
 					<div className="SimpleHistory__filters__filterLabel">
 						{ __( 'Log levels', 'simple-history' ) }
 					</div>
@@ -191,10 +361,7 @@ export function ExpandedFilters( props ) {
 				<FlexBlock>
 					<div
 						className="SimpleHistory__filters__loglevels__select"
-						style={ {
-							width: '310px',
-							backgroundColor: 'white',
-						} }
+						style={ filterFieldStyle }
 					>
 						<FormTokenField
 							__experimentalAutoSelectFirstMatch
@@ -204,9 +371,7 @@ export function ExpandedFilters( props ) {
 								'All log levels',
 								'simple-history'
 							) }
-							onChange={ ( nextValue ) => {
-								setSelectedLogLevels( nextValue );
-							} }
+							onChange={ setSelectedLogLevels }
 							suggestions={ LOGLEVELS_SUGGESTIONS }
 							value={ selectedLogLevels }
 						/>
@@ -214,117 +379,138 @@ export function ExpandedFilters( props ) {
 				</FlexBlock>
 			</Flex>
 
-			<Flex align="top" gap="0" style={ { margin: '0.5em 0' } }>
-				<FlexItem style={ { margin: '.5em 0' } }>
+			<Flex align="top" gap="0" style={ filterRowStyle }>
+				<FlexItem style={ labelMarginStyle }>
 					<div className="SimpleHistory__filters__filterLabel">
-						{ __( 'Message types', 'simple-history' ) }
+						{ __( 'Initiators', 'simple-history' ) }{ ' ' }
+						<a
+							href={ getTrackingUrl(
+								'https://simple-history.com/support/what-is-an-initiator/',
+								'docs_filters_initiator'
+							) }
+							target="_blank"
+							rel="noopener noreferrer"
+							aria-label={ __(
+								'About initiators and how they work (opens in new tab)',
+								'simple-history'
+							) }
+							style={ {
+								color: 'currentColor',
+								verticalAlign: 'middle',
+							} }
+						>
+							<Icon icon={ help } size={ 16 } />
+						</a>
 					</div>
 				</FlexItem>
 				<FlexBlock>
 					<div
 						className="SimpleHistory__filters__loglevels__select"
-						style={ {
-							width: '310px',
-							backgroundColor: 'white',
-						} }
+						style={ filterFieldStyle }
 					>
 						<FormTokenField
 							__experimentalAutoSelectFirstMatch
 							__experimentalExpandOnFocus
 							__experimentalShowHowTo={ false }
-							label=""
+							label={ __( 'Initiators', 'simple-history' ) }
 							placeholder={ __(
-								'All message types',
+								'All initiators',
 								'simple-history'
 							) }
-							onChange={ ( nextValues ) => {
-								handleMessageTypesChange( nextValues );
-							} }
-							// An array of strings or objects to display as tokens in the field. If objects are present in the array, they must have a property of value.
-							// Transform to remove the prefix, if any.
-							value={ selectedMessageTypes.map( ( value ) => {
-								value.value = value.value.replace(
-									SUBITEM_PREFIX,
-									''
-								);
-								return value;
-							} ) }
-							suggestions={ messageTypesSuggestions.map(
+							onChange={ handleInitiatorsChange }
+							value={ selectedInitiator }
+							suggestions={ initiatorSuggestions.map(
 								( suggestion ) => {
 									return suggestion.value;
 								}
 							) }
-							/**
-							 * Custom renderer for suggestions.
-							 * props.item is string. Examples:
-							 * item: 'Tillägg'}
-							 * item: ' - All tilläggsaktivitet'
-							 * item: ' - Aktiverade tillägg'
-							 *
-							 * @param {*} localProps
-							 */
-							__experimentalRenderItem={ ( localProps ) => {
-								// Items that does not begin with prefix should be modified to use bold text.
-								// Items that begin with prefix should not be modified.
-								if (
-									! localProps.item.startsWith(
-										SUBITEM_PREFIX
-									)
-								) {
-									return <strong>{ localProps.item }</strong>;
-								}
-
-								// Unmodified item.
-								return localProps.item;
-							} }
 						/>
 					</div>
 				</FlexBlock>
 			</Flex>
 
-			<Flex align="top" gap="0" style={ { margin: '0.5em 0' } }>
-				<FlexItem style={ { margin: '.5em 0' } }>
+			<Flex align="top" gap="0" style={ filterRowStyle }>
+				<FlexItem style={ labelMarginStyle }>
 					<div className="SimpleHistory__filters__filterLabel">
-						{ __( 'Users', 'simple-history' ) }
+						{ __( 'AI-initiated', 'simple-history' ) }
 					</div>
 				</FlexItem>
 				<FlexBlock>
 					<div
-						className="SimpleHistory__filters__loglevels__select"
 						style={ {
-							width: '310px',
-							backgroundColor: 'white',
+							marginTop: `calc(${ GRID_UNIT } / 2 + 4px)`,
+							paddingLeft: '1px',
 						} }
 					>
-						<FormTokenField
-							__experimentalAutoSelectFirstMatch
-							__experimentalExpandOnFocus
-							__experimentalShowHowTo={ false }
-							label=""
-							placeholder={ __( 'All users', 'simple-history' ) }
-							onChange={ ( nextValues ) => {
-								handleUserChange( nextValues );
-							} }
-							onInputChange={ ( value ) => {
-								searchUsers( value );
-							} }
-							// Suggestions:
-							// An array of strings to present to the user as suggested tokens.
-							suggestions={ userSuggestions.map(
-								( suggestion ) => {
-									return suggestion.value;
-								}
+						<CheckboxControl
+							__nextHasNoMarginBottom
+							label={ __(
+								'AI-initiated events only',
+								'simple-history'
 							) }
-							value={ selectedUsersWithId }
+							help={ __(
+								'Events where an AI tool or agent acted on behalf of a user.',
+								'simple-history'
+							) }
+							checked={ showAIOnly }
+							onChange={ setShowAIOnly }
 						/>
 					</div>
-					<BaseControl
-						__nextHasNoMarginBottom
-						help={ __(
-							'Enter 2 or more characters to search for users.',
-							'simple-history'
-						) }
-					/>
+				</FlexBlock>
+			</Flex>
+
+			<Flex align="top" gap="0" style={ filterRowStyle }>
+				<FlexItem style={ labelMarginStyle }>
+					<div className="SimpleHistory__filters__filterLabel">
+						{ __( 'Event metadata', 'simple-history' ) }
+					</div>
+				</FlexItem>
+				<FlexBlock>
+					<div style={ { maxWidth: '310px' } }>
+						<InputControl
+							value={ enteredMetadataSearch }
+							onChange={ ( value ) =>
+								setEnteredMetadataSearch( value || '' )
+							}
+							placeholder={ __(
+								'IP address, email, username…',
+								'simple-history'
+							) }
+							help={ __(
+								'Searches IP addresses, emails, and hidden metadata. May be slower on large sites.',
+								'simple-history'
+							) }
+						/>
+					</div>
+				</FlexBlock>
+			</Flex>
+
+			<Flex align="top" gap="0" style={ filterRowStyle }>
+				<FlexItem style={ labelMarginStyle }>
+					<div className="SimpleHistory__filters__filterLabel">
+						{ __( 'Context', 'simple-history' ) }
+					</div>
+				</FlexItem>
+				<FlexBlock>
+					<div style={ { maxWidth: '310px' } }>
+						<TextareaControl
+							__nextHasNoMarginBottom
+							value={ selectedContextFilters }
+							onChange={ ( value ) =>
+								setSelectedContextFilters( value )
+							}
+							placeholder={ __( '_user_id:1', 'simple-history' ) }
+							rows={ 2 }
+							help={ __(
+								'Advanced: filter by raw event context. One key:value pair per line.',
+								'simple-history'
+							) }
+							style={ {
+								fontFamily: 'monospace',
+								fieldSizing: 'content',
+							} }
+						/>
+					</div>
 				</FlexBlock>
 			</Flex>
 		</div>

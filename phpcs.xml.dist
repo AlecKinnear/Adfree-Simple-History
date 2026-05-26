@@ -12,8 +12,11 @@
 	<!-- Show results with colors -->
 	<arg name="colors"/>
 
+	<!-- Show all warnings regardless of severity (matches VIP behavior) -->
+	<arg name="warning-severity" value="1"/>
+
 	<!-- Don't show warnings -->
-	<arg value="n"/>
+	<!-- <arg value="n"/> -->
 
 	<!-- Only scan PHP files. -->
 	<arg name="extensions" value="php"/>
@@ -32,10 +35,12 @@
 
 	<!-- Exclude composer dir and similar -->
 	<exclude-pattern>*/vendor/</exclude-pattern>
+	<exclude-pattern>*/vendor-prefixed/</exclude-pattern>
 	<exclude-pattern>*/node_modules/</exclude-pattern>
 	<exclude-pattern>*/build/</exclude-pattern>
 	<exclude-pattern>*/tests/</exclude-pattern>
 	<exclude-pattern>*/data/</exclude-pattern>
+	<exclude-pattern>*/.claude/</exclude-pattern>
 
 	<!-- 
 		Info about customizable things:
@@ -43,7 +48,7 @@
 		Also see example XML:
 		https://github.com/WordPress/WordPress-Coding-Standards/blob/develop/phpcs.xml.dist.sample
 	-->
-	<config name="minimum_wp_version" value="6.2"/>
+	<config name="minimum_wp_version" value="6.3"/>
 
 	<rule ref="Generic.Commenting.DocComment.MissingShort">
 		<!-- Temporarily disabled until https://github.com/WordPress/WordPress-Coding-Standards/issues/403 is fixed. -->
@@ -62,6 +67,16 @@
 
 		<!-- Can't change the hook names we already have. -->
 		<exclude name="WordPress.NamingConventions.ValidHookName.NotLowercase" />
+	</rule>
+
+	<!-- WordPress VIP Go coding standards for enterprise compatibility -->
+	<rule ref="WordPress-VIP-Go" />
+
+	<!-- Override WordPress-Extra's maxPercentage=40 to match VIP's stricter 35% threshold -->
+	<rule ref="Squiz.PHP.CommentedOutCode">
+		<properties>
+			<property name="maxPercentage" value="35"/>
+		</properties>
 	</rule>
 
 	<rule ref="WordPress.WP.I18n">
@@ -93,15 +108,8 @@
 
 	<rule ref="PHPCompatibilityWP"/>
 
-	<rule ref="WordPress.Security.EscapeOutput">
-		<properties>
-			<property name="customEscapingFunctions" type="array">
-				<element value="esc_xml"/>
-				<!-- Can't get this to work. Related issue: https://github.com/WordPress/WordPress-Coding-Standards/issues/1176 -->
-				<element value="\Simple_History\Compat::esc_xml"/>
-			</property>
-		</properties>
-	</rule>
+	<!-- Disallow alternative syntax for control structures (use braces instead of colons) -->
+	<rule ref="Universal.ControlStructures.DisallowAlternativeSyntax"/>
 
 	<!-- Disallow mb functions since they are not available on all PHP server configs -->
 	<rule ref="Generic.PHP.ForbiddenFunctions">
@@ -169,5 +177,73 @@
 			</property>
 		</properties>
 	</rule>
+
+	<!--
+		Slevomat Coding Standard rules
+		These enforce patterns from our code quality skill:
+		- Early returns over else statements
+		- Null coalescing operator over isset() ternaries
+		- Clean, readable code patterns
+		https://github.com/slevomat/coding-standard
+	-->
+
+	<!-- Enforce early returns instead of nested if/else (matches "Happy path last" guideline) -->
+	<rule ref="SlevomatCodingStandard.ControlStructures.EarlyExit"/>
+
+	<!-- Remove useless if conditions that just wrap return statements -->
+	<rule ref="SlevomatCodingStandard.ControlStructures.UselessIfConditionWithReturn"/>
+
+	<!-- Require ?? over isset() ternaries (matches "Null Coalescing Operator" guideline) -->
+	<rule ref="SlevomatCodingStandard.ControlStructures.RequireNullCoalesceOperator"/>
+
+	<!-- Require ??= for null coalescing assignment (PHP 7.4+) -->
+	<rule ref="SlevomatCodingStandard.ControlStructures.RequireNullCoalesceEqualOperator"/>
+
+	<!-- Disallow Yoda comparisons (already excluded in WordPress rule, this enforces it) -->
+	<rule ref="SlevomatCodingStandard.ControlStructures.DisallowYodaComparison"/>
+
+	<!-- Require trailing commas in multi-line arrays (cleaner git diffs) -->
+	<rule ref="SlevomatCodingStandard.Arrays.TrailingArrayComma"/>
+
+	<!-- Flag useless variables that just pass through values -->
+	<rule ref="SlevomatCodingStandard.Variables.UselessVariable"/>
+
+	<!-- Detect unused variables -->
+	<rule ref="SlevomatCodingStandard.Variables.UnusedVariable">
+		<properties>
+			<property name="ignoreUnusedValuesWhenOnlyKeysAreUsedInForeach" value="true"/>
+		</properties>
+	</rule>
+
+	<!-- Detect variables assigned twice without being used -->
+	<rule ref="SlevomatCodingStandard.Variables.DuplicateAssignmentToVariable"/>
+
+	<!-- Remove useless ternary like $x ? true : false -->
+	<rule ref="SlevomatCodingStandard.ControlStructures.UselessTernaryOperator"/>
+
+	<!-- Detect assignments in conditions (likely bugs) -->
+	<rule ref="SlevomatCodingStandard.ControlStructures.AssignmentInCondition"/>
+
+	<!-- Remove unused use statements -->
+	<rule ref="SlevomatCodingStandard.Namespaces.UnusedUses">
+		<properties>
+			<property name="searchAnnotations" value="true"/>
+		</properties>
+	</rule>
+
+	<!-- Remove useless aliases like "use Foo as Foo" -->
+	<rule ref="SlevomatCodingStandard.Namespaces.UselessAlias"/>
+
+	<!-- Detect unreachable catch blocks -->
+	<rule ref="SlevomatCodingStandard.Exceptions.DeadCatch"/>
+
+	<!-- Remove unnecessary parentheses -->
+	<rule ref="SlevomatCodingStandard.PHP.UselessParentheses"/>
+
+	<!-- Remove double semicolons -->
+	<rule ref="SlevomatCodingStandard.PHP.UselessSemicolon"/>
+
+	<!-- Remove unused inherited variables in closures -->
+	<rule ref="SlevomatCodingStandard.Functions.UnusedInheritedVariablePassedToClosure"/>
 
 </ruleset>

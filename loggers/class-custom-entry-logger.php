@@ -2,13 +2,8 @@
 
 namespace Simple_History\Loggers;
 
-use Simple_History\Event_Details\Event_Details_Container;
-use Simple_History\Event_Details\Event_Details_Container_Interface;
-use Simple_History\Event_Details\Event_Details_Simple_Container;
 use Simple_History\Event_Details\Event_Details_Group;
 use Simple_History\Event_Details\Event_Details_Item;
-use Simple_History\Event_Details\Event_Details_Group_Inline_Formatter;
-use Simple_History\Log_Levels;
 
 /**
  * Logger for custom entries added manually through WP-CLI or REST API.
@@ -29,17 +24,16 @@ class Custom_Entry_Logger extends Logger {
 	 * @return array Array with logger info.
 	 */
 	public function get_info() {
-		$arr_info = array(
+		return array(
 			'name'        => _x( 'Custom Entry Logger', 'Logger: Custom Entry', 'simple-history' ),
 			'description' => _x( 'Logs custom entries added through WP-CLI or REST API', 'Logger: Custom Entry', 'simple-history' ),
 			'capability'  => 'edit_pages',
 			'messages'    => array(
 				'custom_entry_added' => _x( 'Added a custom entry: {message}', 'Logger: Custom Entry', 'simple-history' ),
 			),
-			'labels' => [
+			'labels'      => [
 				'search' => [
-					'label' => _x( 'Custom entries', 'Custom entry logger: search', 'simple-history' ),
-					// 'label_all' => _x( 'All custom entries', 'Custom entry logger: search', 'simple-history' ),
+					'label'   => _x( 'Custom entries', 'Custom entry logger: search', 'simple-history' ),
 					'options' => [
 						_x( 'Custom entry added', 'Custom entry logger: search', 'simple-history' ) => [
 							'custom_entry_added',
@@ -48,8 +42,6 @@ class Custom_Entry_Logger extends Logger {
 				],
 			],
 		);
-
-		return $arr_info;
 	}
 
 	/**
@@ -57,10 +49,10 @@ class Custom_Entry_Logger extends Logger {
 	 * display the message note in the details area, if it exists.
 	 *
 	 * @param object $row Log row.
-	 * @return Event_Details_Container_Interface|null
+	 * @return Event_Details_Group|null
 	 */
 	public function get_log_row_details_output( $row ) {
-		$context = $row->context;
+		$context     = $row->context;
 		$message_key = $context['_message_key'] ?? null;
 
 		// Bail if no message key.
@@ -68,20 +60,17 @@ class Custom_Entry_Logger extends Logger {
 			return null;
 		}
 
-		$event_details_group = new Event_Details_Group();
-
-		// Add note if it exists.
-		if ( ! empty( $context['note'] ) ) {
-			// Create a group for the note.
-
-			$event_details_group->add_item(
-				new Event_Details_Item(
-					'note',
-					__( 'Entry notes', 'simple-history' ),
-				)
-			);
-
+		if ( empty( $context['note'] ) ) {
+			return null;
 		}
+
+		$event_details_group = new Event_Details_Group();
+		$event_details_group->add_item(
+			new Event_Details_Item(
+				'note',
+				__( 'Entry notes', 'simple-history' ),
+			)
+		);
 
 		return $event_details_group;
 	}

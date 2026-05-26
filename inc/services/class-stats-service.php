@@ -2,6 +2,7 @@
 
 namespace Simple_History\Services;
 
+use Simple_History\Date_Helper;
 use Simple_History\Helpers;
 use Simple_History\Menu_Page;
 use Simple_History\Simple_History;
@@ -45,11 +46,13 @@ class Stats_Service extends Service {
 
 		// Create insights page.
 		$insights_page = ( new Menu_Page() )
-			->set_page_title( _x( 'Stats & Summaries - Simple History', 'dashboard title name', 'simple-history' ) )
-			->set_menu_title( _x( 'Stats & Summaries', 'dashboard menu name', 'simple-history' ) )
+			->set_page_title( _x( 'History Insights - Simple History', 'dashboard title name', 'simple-history' ) )
+			->set_menu_title( _x( 'History Insights', 'dashboard menu name', 'simple-history' ) )
 			->set_menu_slug( 'simple_history_stats_page' )
 			->set_capability( 'manage_options' )
-			->set_callback( [ $this, 'output_page' ] );
+			->set_callback( [ $this, 'output_page' ] )
+			->set_icon( 'bar_chart' )
+			->set_order( 2 );
 
 		// Set different options depending on location.
 		if ( in_array( $admin_page_location, [ 'top', 'bottom' ], true ) ) {
@@ -57,7 +60,7 @@ class Stats_Service extends Service {
 			$insights_page
 				->set_parent( Simple_History::MENU_PAGE_SLUG )
 				->set_location( 'submenu' );
-		} else if ( in_array( $admin_page_location, [ 'inside_dashboard', 'inside_tools' ], true ) ) {
+		} elseif ( in_array( $admin_page_location, [ 'inside_dashboard', 'inside_tools' ], true ) ) {
 			// If main page is shown as child to tools or dashboard then settings page is shown as child to settings main menu.
 			$insights_page
 				->set_parent( Simple_History::SETTINGS_MENU_PAGE_SLUG );
@@ -77,47 +80,81 @@ class Stats_Service extends Service {
 	 * }
 	 */
 	private function get_selected_date_range() {
+		// Example periods:
+		// 1h: 1 hour ago
+		// 24h: 1 day ago
+		// 7d: 7 days ago
+		// 14d: 14 days ago
+		// 1m: 1 month ago
+		// 3m: 3 months ago
+		// 6m: 6 months ago.
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
 		$period = isset( $_GET['period'] ) ? sanitize_text_field( wp_unslash( $_GET['period'] ) ) : '1m';
-		$date_to = time();
+		if ( empty( $period ) ) {
+			$period = '1m';
+		}
 
-		switch ( $period ) {
-			case '1h':
-				$date_from = strtotime( '-1 hour' );
+		// Get current date in WordPress timezone (not UTC).
+		$now = new \DateTimeImmutable( 'now', wp_timezone() );
+
+		// Get the number of the period, i.e. 1, 24, 7, 14, 1, 3, 6, 12.
+		$period_number = substr( $period, 0, -1 );
+
+		// Get the last character of the period, i.e. h, d, m, y.
+		$period_string_suffix = substr( $period, -1 );
+
+		switch ( $period_string_suffix ) {
+			case 'h':
+				$period_string_full_name = 'hour';
 				break;
-			case '24h':
-				$date_from = strtotime( '-24 hours' );
+			case 'd':
+				$period_string_full_name = 'day';
 				break;
-			case '14d':
-				$date_from = strtotime( '-14 days' );
+			case 'm':
+				$period_string_full_name = 'month';
 				break;
-			case '1m':
-				$date_from = strtotime( '-1 month' );
-				break;
-			case '7d':
-				$date_from = strtotime( '-7 days' );
-				break;
-			case '3m':
-				$date_from = strtotime( '-3 months' );
-				break;
-			case '6m':
-				$date_from = strtotime( '-6 months' );
-				break;
-			case '12m':
-				$date_from = strtotime( '-12 months' );
+			case 'y':
+				$period_string_full_name = 'year';
 				break;
 			default:
-				$date_from = strtotime( '-1 month' );
+				$period_string_full_name = 'month';
 				break;
+		}
+
+		// For day/month/year periods, snap to start/end of day for consistent boundaries.
+		// For month periods, convert to days (1m = 30 days) to ensure exact day counts.
+		if ( in_array( $period_string_suffix, [ 'd', 'm', 'y' ], true ) ) {
+			// Convert months to days for consistent counting (1m = 30d, 3m = 90d, etc).
+			if ( $period_string_suffix === 'm' ) {
+				$days_to_subtract = (int) $period_number * 30;
+			} elseif ( $period_string_suffix === 'y' ) {
+				$days_to_subtract = (int) $period_number * 365;
+			} else {
+				$days_to_subtract = (int) $period_number;
+			}
+
+			// Use Date_Helper for consistent date calculation with sidebar stats.
+			// This ensures "last 30 days" means the same across all stats displays.
+			$date_from = Date_Helper::get_last_n_days_start_timestamp( $days_to_subtract );
+			$date_to   = Date_Helper::get_today_end_timestamp();
+		} else {
+			// For hours, use exact timestamps.
+			$date_time_modifier = "-{$period_number} {$period_string_full_name}";
+			$date_from_datetime = $now->modify( $date_time_modifier );
+			$date_from          = $date_from_datetime->getTimestamp();
+			$date_to            = $now->getTimestamp();
 		}
 
 		return [
 			'date_from' => $date_from,
-			'date_to' => $date_to,
+			'date_to'   => $date_to,
 		];
 	}
 
 	/**
 	 * Enqueue required scripts and styles for the insights page.
+	 *
+	 * These styles are overwritten by the premium add-on to add it's own styles.
 	 */
 	public function enqueue_scripts_and_styles() {
 		wp_enqueue_script(
@@ -143,11 +180,14 @@ class Stats_Service extends Service {
 		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
 		echo Admin_Pages::header_output();
 
+		// Both core and premium add-on can hook into this action to output their own stats page contents.
 		do_action( 'simple_history/stats/output_page_contents' );
 	}
 
 	/**
 	 * Output stats page contents with basic information + information about premium features.
+	 *
+	 * This method is unhooked by the premium add-on to replace it with its own stats page contents.
 	 */
 	public function output_page_contents() {
 		[ 'date_from' => $date_from, 'date_to' => $date_to ] = $this->get_selected_date_range();
@@ -208,20 +248,26 @@ class Stats_Service extends Service {
 			'total_count' => $this->stats->get_media_total_count( $date_from, $date_to ),
 		];
 
+		// Get notes statistics (WordPress 6.9+).
+		$notes_stats = [
+			'total_count' => $this->stats->get_notes_total_count( $date_from, $date_to ),
+		];
+
 		// Get top users.
 		$top_users = $this->stats->get_top_users( $date_from, $date_to );
 
 		return [
-			'stats' => $this->stats,
-			'overview_total_events' => $total_events,
+			'stats'                     => $this->stats,
+			'overview_total_events'     => $total_events,
 			'overview_activity_by_date' => $activity_overview_by_date,
-			'user_stats' => $user_stats,
-			'plugin_stats' => $plugin_stats,
-			'wordpress_stats' => $wordpress_stats,
-			'content_stats' => $posts_pages_stats,
-			'media_stats' => $media_stats,
-			'user_rankings' => $top_users,
-			'user_total_count' => $this->stats->get_total_users( $date_from, $date_to ),
+			'user_stats'                => $user_stats,
+			'plugin_stats'              => $plugin_stats,
+			'wordpress_stats'           => $wordpress_stats,
+			'content_stats'             => $posts_pages_stats,
+			'media_stats'               => $media_stats,
+			'notes_stats'               => $notes_stats,
+			'user_rankings'             => $top_users,
+			'user_total_count'          => $this->stats->get_total_users( $date_from, $date_to ),
 		];
 	}
 
@@ -237,9 +283,9 @@ class Stats_Service extends Service {
 			'simple-history-stats',
 			'simpleHistoryStats',
 			[
-				'data' => [
+				'data'    => [
 					'activityOverview' => $data['overview_activity_by_date'] ? $data['overview_activity_by_date'] : [],
-					'topUsers' => $data['user_rankings'] ? $data['user_rankings'] : [],
+					'topUsers'         => $data['user_rankings'] ? $data['user_rankings'] : [],
 				],
 				'strings' => [
 					'weekdays' => [
@@ -251,6 +297,7 @@ class Stats_Service extends Service {
 						__( 'Friday', 'simple-history' ),
 						__( 'Saturday', 'simple-history' ),
 					],
+					'events'   => __( 'Events', 'simple-history' ),
 				],
 			]
 		);
