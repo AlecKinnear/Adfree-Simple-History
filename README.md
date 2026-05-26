@@ -1,7 +1,3 @@
-Here is a draft for the new professional, minimalist README for AdFree Simple History, incorporating the changes and focusing on the clear differences between this fork and the main branch.
-
----
-
 # AdFree Simple History
 
 **A professional, ad-free WordPress activity log for what matters.**
