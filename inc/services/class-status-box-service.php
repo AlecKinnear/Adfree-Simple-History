@@ -100,7 +100,7 @@ class Status_Box_Service extends Service {
 		$is_premium = Helpers::is_premium_add_on_active();
 
 		$settings_url       = Helpers::get_settings_page_url();
-		$general_section    = $settings_url . '#simple_history_general_section';
+		$retention_section  = Helpers::get_settings_page_sub_tab_url( Hidden_Settings_Page::SETTINGS_SUBTAB_SLUG ) . '#simple_history_retention_days';
 		$email_section      = add_query_arg(
 			[
 				'selected-tab'     => 'general_settings_subtab_general',
@@ -126,7 +126,7 @@ class Status_Box_Service extends Service {
 				$days
 			),
 			'icon'  => 'dashicons-clock',
-			'url'   => $general_section,
+			'url'   => $retention_section,
 			'title' => __( 'Go to retention settings', 'simple-history' ),
 		];
 

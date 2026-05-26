@@ -6,6 +6,7 @@ use Simple_History\Event_Details\Event_Details_Group;
 use Simple_History\Event_Details\Event_Details_Item;
 use Simple_History\Helpers;
 use Simple_History\Services\Channels_Settings_Page;
+use Simple_History\Services\Hidden_Settings_Page;
 
 /**
  * Logs changes made on the Simple History settings page.
@@ -286,28 +287,18 @@ class Simple_History_Logger extends Logger {
 		$message_key = $row->context_message_key;
 
 		if ( $message_key === 'purged_events' ) {
-			// Add a text with a link with information on how to modify retention.
-			if ( Helpers::is_premium_add_on_active() ) {
-				$message = sprintf(
-					/* translators: 1 is a link to the settings page retention setting */
-					__( '<a href="%1$s">Set number of days the log is kept.</a>', 'simple-history' ),
-					esc_url( Helpers::get_settings_page_url() . '#simple-history-premium-settings' )
-				);
-			} else {
-				$message = sprintf(
-				/* translators: 1 is a link to webpage with info about how to modify number of days to keep the log */
-					__( '<a href="%1$s" target="_blank" class="sh-ExternalLink">Set number of days the log is kept (Premium).</a>', 'simple-history' ),
-					esc_url( Helpers::get_tracking_url( 'https://simple-history.com/add-ons/premium/', 'premium_logger_purged' ) )
-				);
-			}
+			$settings_url = Helpers::get_settings_page_sub_tab_url( Hidden_Settings_Page::SETTINGS_SUBTAB_SLUG ) . '#simple_history_retention_days';
+			$message      = sprintf(
+				/* translators: 1 is a link to the settings page retention setting */
+				__( '<a href="%1$s">Set number of days the log is kept.</a>', 'simple-history' ),
+				esc_url( $settings_url )
+			);
 
 			$html_output = '<p>' . wp_kses(
 				$message,
 				[
 					'a' => [
-						'href'   => [],
-						'target' => [],
-						'class'  => [],
+						'href' => [],
 					],
 				]
 			) . '</p>';
@@ -316,9 +307,7 @@ class Simple_History_Logger extends Logger {
 				$html_output,
 				[
 					'type'    => 'retention_link',
-					'content' => Helpers::is_premium_add_on_active()
-						? Helpers::get_settings_page_url() . '#simple-history-premium-settings'
-						: Helpers::get_tracking_url( 'https://simple-history.com/add-ons/premium/', 'premium_logger_purged' ),
+					'content' => $settings_url,
 				]
 			);
 		}

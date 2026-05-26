@@ -878,6 +878,28 @@ class Helpers {
 	}
 
 	/**
+	 * Sanitize retention days setting.
+	 * 0 = keep events forever.
+	 *
+	 * @param mixed $value Submitted value.
+	 * @return int Number of days.
+	 */
+	public static function sanitize_retention_days_input( $value ) {
+		return absint( $value );
+	}
+
+	/**
+	 * Stored retention days from settings (before filters).
+	 *
+	 * @return int Number of days. 0 = keep forever.
+	 */
+	public static function get_retention_days_setting() {
+		$stored_days = get_option( 'simple_history_retention_days' );
+
+		return $stored_days !== false ? (int) $stored_days : 60;
+	}
+
+	/**
 	 * Get shortname for a class,
 	 * i.e. the unqualified class name.
 	 * Example get_class_short_name( Simple_History\Services\Loggers_Loader )
@@ -1202,9 +1224,7 @@ class Helpers {
 	 * @return int Number of days.
 	 */
 	public static function get_clear_history_interval() {
-		// Default: 30 days for fresh installs, 60 days for existing installs.
-		$stored_days = get_option( 'simple_history_retention_days' );
-		$days        = $stored_days !== false ? (int) $stored_days : 60;
+		$days = self::get_retention_days_setting();
 
 		/**
 		 * Deprecated filter name, use `simple_history/db_purge_days_interval` instead.

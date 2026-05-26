@@ -479,9 +479,7 @@ class History_Insights_Sidebar_Service extends Service {
 			: __( 'forever', 'simple-history' );
 
 		// Make retention period a link to settings with anchor to retention section.
-		// When premium is active, link to premium settings where the retention setting lives.
-		$retention_anchor      = Helpers::is_premium_add_on_active() ? '#simple-history-premium-settings' : '#simple_history_clear_log_info';
-		$settings_url          = Helpers::get_settings_page_url() . $retention_anchor;
+		$settings_url          = Helpers::get_settings_page_sub_tab_url( Hidden_Settings_Page::SETTINGS_SUBTAB_SLUG ) . '#simple_history_retention_days';
 		$retention_text_linked = sprintf(
 			'<a href="%s" class="sh-whitespace-nowrap"><b>%s</b></a>',
 			esc_url( $settings_url ),

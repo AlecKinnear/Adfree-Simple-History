@@ -502,30 +502,27 @@ class Setup_Settings_Page extends Service {
 		// Wrap in a div with id "simple_history_clear_log_info" so we can target it with link and CSS.
 		echo '<div id="simple_history_clear_log_info">';
 
-		echo '<p>';
-
 		if ( $clear_days > 0 ) {
-			printf(
-				// translators: %1$s is number of days.
-				esc_html__( 'Activity older than %1$s days is automatically cleaned up to keep your database lean.', 'simple-history' ),
-				esc_html( $clear_days )
+			$retention_settings_url = Helpers::get_settings_page_sub_tab_url( Hidden_Settings_Page::SETTINGS_SUBTAB_SLUG ) . '#simple_history_retention_days';
+
+			echo '<p class="description">';
+			echo wp_kses(
+				sprintf(
+					/* translators: %s: link to Hidden Settings tab */
+					__( 'Removes all events from the database immediately. Automatic cleanup still follows the <a href="%s">log retention setting</a>.', 'simple-history' ),
+					esc_url( $retention_settings_url )
+				),
+				[
+					'a' => [
+						'href' => [],
+					],
+				]
 			);
-			echo '<br>';
+			echo '</p>';
 		} else {
-			esc_html_e( 'Items in the database are kept forever.', 'simple-history' );
-		}
-
-		echo '</p>';
-
-		// View Premium add-on information, if not already installed.
-		if ( Helpers::show_promo_boxes() ) {
-			?>
-			<p>
-				<a href="<?php echo esc_url( Helpers::get_tracking_url( 'https://simple-history.com/premium/', 'premium_settings_purge' ) ); ?>" target="_blank" class="sh-ExternalLink">
-					<?php esc_html_e( 'Need to keep history longer? Premium extends retention to 365+ days.', 'simple-history' ); ?>
-				</a>
-			</p>
-			<?php
+			echo '<p class="description">';
+			esc_html_e( 'Removes all events from the database immediately.', 'simple-history' );
+			echo '</p>';
 		}
 
 		printf(
