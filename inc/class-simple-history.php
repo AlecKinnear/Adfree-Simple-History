@@ -573,7 +573,6 @@ class Simple_History {
 			Dropins\Settings_Help_Support_Dropin::class,
 			Dropins\Sidebar_Add_Ons_Dropin::class,
 			Dropins\Sidebar_Dropin::class,
-			Dropins\Sidebar_Email_Promo_Dropin::class,
 			Dropins\Tools_Menu_Dropin::class,
 		);
 
