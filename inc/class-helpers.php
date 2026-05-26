@@ -2034,7 +2034,7 @@ class Helpers {
 	 * @return bool True if promo boxes should be shown, false otherwise.
 	 */
 	public static function show_promo_boxes() {
-		$show_promo_boxes = true;
+		$show_promo_boxes = false;
 
 		// Hide if Premium add-on is active.
 		if ( self::is_premium_add_on_active() ) {
