@@ -228,6 +228,7 @@ class Export {
 			_x( 'User Email', 'CSV export header', 'simple-history' ),
 			_x( 'User Login', 'CSV export header', 'simple-history' ),
 			_x( 'User Roles', 'CSV export header', 'simple-history' ),
+			_x( 'IP Address', 'CSV export header', 'simple-history' ),
 			_x( 'Header Message', 'CSV export header', 'simple-history' ),
 			_x( 'Details', 'CSV export header', 'simple-history' ),
 			_x( 'Occasions', 'CSV export header', 'simple-history' ),
@@ -250,6 +251,7 @@ class Export {
 
 		$user_email = empty( $one_row->context['_user_email'] ) ? null : $one_row->context['_user_email'];
 		$user_login = empty( $one_row->context['_user_login'] ) ? null : $one_row->context['_user_login'];
+		$ip_address = $this->get_csv_ip_address( $one_row );
 		$user_roles = [];
 
 		if ( $user_email ) {
@@ -281,12 +283,36 @@ class Export {
 				Helpers::esc_csv_field( $user_email ),
 				Helpers::esc_csv_field( $user_login ),
 				Helpers::esc_csv_field( $user_roles_comma_separated ),
+				Helpers::esc_csv_field( $ip_address ),
 				Helpers::esc_csv_field( $header_output ),
 				Helpers::esc_csv_field( $message_output ),
 				// phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
 				Helpers::esc_csv_field( $one_row->subsequentOccasions ),
 			)
 		);
+	}
+
+	/**
+	 * IP address to write for one event.
+	 *
+	 * Detective Mode stores $_SERVER['REMOTE_ADDR'] unchanged as
+	 * detective_mode_server_remote_addr. That is the address shown in the
+	 * event context. _server_remote_addr is the anonymized copy.
+	 *
+	 * @param object $one_row Log row.
+	 * @return string
+	 */
+	protected function get_csv_ip_address( $one_row ) {
+		$context = isset( $one_row->context ) && is_array( $one_row->context ) ? $one_row->context : array();
+
+		$raw_ip = $context['detective_mode_server_remote_addr'] ?? '';
+		if ( is_string( $raw_ip ) && filter_var( $raw_ip, FILTER_VALIDATE_IP ) ) {
+			return $raw_ip;
+		}
+
+		$stored_ip = $context['_server_remote_addr'] ?? '';
+
+		return is_string( $stored_ip ) ? $stored_ip : '';
 	}
 
 	/**

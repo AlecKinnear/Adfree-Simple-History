@@ -124,7 +124,11 @@ export function EventsControlBar( props ) {
 							transition: 'opacity 0.15s ease-in',
 						} }
 					>
-						{ shouldShowPromoButtons && <ExportButton /> }
+						{ shouldShowPromoButtons && (
+							<ExportButton
+								eventsQueryParams={ eventsQueryParams }
+							/>
+						) }
 
 						{ shouldShowPromoButtons && (
 							<CreateAlertButton
