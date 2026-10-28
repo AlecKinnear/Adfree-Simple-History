@@ -295,24 +295,133 @@ class Export {
 	/**
 	 * IP address to write for one event.
 	 *
+	 * A comment that was just posted keeps its full address on the comment
+	 * (comment_author_IP). The copy stored as _server_remote_addr was originally anonymized.
+	 *
 	 * Detective Mode stores $_SERVER['REMOTE_ADDR'] unchanged as
-	 * detective_mode_server_remote_addr. That is the address shown in the
-	 * event context. _server_remote_addr is the anonymized copy.
+	 * detective_mode_server_remote_addr. That address is used when the comment
+	 * address is not available. Otherwise the potentially anonymized _server_remote_addr
+	 * is written.
 	 *
 	 * @param object $one_row Log row.
 	 * @return string
 	 */
 	protected function get_csv_ip_address( $one_row ) {
-		$context = isset( $one_row->context ) && is_array( $one_row->context ) ? $one_row->context : array();
+		$context = isset( $one_row->context ) && is_array( $one_row->context ) ? $one_row->context : [];
 
-		$raw_ip = $context['detective_mode_server_remote_addr'] ?? '';
-		if ( is_string( $raw_ip ) && filter_var( $raw_ip, FILTER_VALIDATE_IP ) ) {
+		$comment_ip = $this->get_posted_comment_ip_address( $one_row, $context );
+
+		if ( $comment_ip !== '' ) {
+			return $comment_ip;
+		}
+
+		$raw_ip = $this->validated_ip_address( $context['detective_mode_server_remote_addr'] ?? '' );
+
+		if ( $raw_ip !== '' ) {
 			return $raw_ip;
 		}
 
 		$stored_ip = $context['_server_remote_addr'] ?? '';
 
 		return is_string( $stored_ip ) ? $stored_ip : '';
+	}
+
+	/**
+	 * Full IP of a comment that this event recorded as being posted.
+	 *
+	 * Reads the comment when it still exists. If it was deleted, uses the
+	 * address copied from the comment onto the event when it was logged.
+	 *
+	 * Approving, editing, or deleting a comment is a later action. Those
+	 * events keep the actor's address, which may be anonymized.
+	 *
+	 * @param object              $one_row Log row.
+	 * @param array<string,mixed> $context Event context.
+	 * @return string Valid IP, or an empty string when this is not a posted comment.
+	 */
+	private function get_posted_comment_ip_address( $one_row, $context ) {
+		if ( ! $this->is_posted_comment_event( $one_row ) ) {
+			return '';
+		}
+
+		$comment_id = absint( $context['comment_ID'] ?? 0 );
+
+		if ( $comment_id ) {
+			$comment = get_comment( $comment_id );
+
+			if ( $comment instanceof \WP_Comment ) {
+				$comment_ip = $this->validated_ip_address( $comment->comment_author_IP );
+
+				if ( $comment_ip !== '' ) {
+					return $comment_ip;
+				}
+			}
+		}
+
+		return $this->validated_ip_address( $context['comment_author_IP'] ?? '' );
+	}
+
+	/**
+	 * Whether the row is a comment, trackback, or pingback being added.
+	 *
+	 * @param object $one_row Log row.
+	 * @return bool
+	 */
+	private function is_posted_comment_event( $one_row ) {
+		$logger = $one_row->logger ?? '';
+
+		if ( $logger !== 'SimpleCommentsLogger' ) {
+			return false;
+		}
+
+		$message_key = $one_row->context_message_key ?? '';
+
+		if ( ! is_string( $message_key ) ) {
+			$message_key = '';
+		}
+
+		if ( $message_key === '' ) {
+			$context     = $one_row->context ?? [];
+			$message_key = is_array( $context ) ? ( $context['_message_key'] ?? '' ) : '';
+		}
+
+		if ( ! is_string( $message_key ) ) {
+			return false;
+		}
+
+		$posted_message_keys = [
+			'anon_comment_added',
+			'user_comment_added',
+			'anon_trackback_added',
+			'user_trackback_added',
+			'anon_pingback_added',
+			'user_pingback_added',
+		];
+
+		return in_array( $message_key, $posted_message_keys, true );
+	}
+
+	/**
+	 * Return a trimmed IP when it is a real address.
+	 *
+	 * Anonymized values such as "203.0.113.x" are rejected.
+	 *
+	 * @param mixed $ip_address Candidate address.
+	 * @return string
+	 */
+	private function validated_ip_address( $ip_address ) {
+		if ( ! is_string( $ip_address ) ) {
+			return '';
+		}
+
+		$ip_address = trim( $ip_address );
+		$validated  = filter_var( $ip_address, FILTER_VALIDATE_IP );
+
+		if ( $validated === false ) {
+			return '';
+		}
+
+		return $validated;
 	}
 
 	/**
