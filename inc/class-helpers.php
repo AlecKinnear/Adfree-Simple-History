@@ -712,7 +712,7 @@ class Helpers {
 	}
 
 	/**
-	 * Anonymize IP-address using the WordPress function wp_privacy_anonymize_ip(),
+	 * Optionally anonymize IP-address using the WordPress function wp_privacy_anonymize_ip(),
 	 * with addition that it replaces the last 0 with a "x" so
 	 * users hopefully understand that it is a modified IP-address
 	 * that is anonymized.
@@ -723,12 +723,12 @@ class Helpers {
 	public static function privacy_anonymize_ip( $ip_address ) {
 		/**
 		 * Filter to control if ip addresses should be anonymized or not.
-		 * Defaults to true, meaning that any IP address is anonymized.
+		 * Defaults to false, meaning that any IP address is not anonymized.
 		 *
-		 * @example Disable IP anonymization.
+		 * @example Enable IP anonymization.
 		 *
 		 * ```php
-		 * add_filter( 'simple_history/privacy/anonymize_ip_address', '__return_false' );
+		 * add_filter( 'simple_history/privacy/anonymize_ip_address', '__return_true' );
 		 * ```
 		 *
 		 * @since 2.22
@@ -737,7 +737,7 @@ class Helpers {
 		 */
 		$anonymize_ip_address = apply_filters(
 			'simple_history/privacy/anonymize_ip_address',
-			true
+			false
 		);
 
 		if ( ! $anonymize_ip_address ) {
